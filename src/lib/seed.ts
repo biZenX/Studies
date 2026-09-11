@@ -4,6 +4,27 @@ import { eq, sql } from "drizzle-orm";
 import { DEFAULT_STUDY, DEFAULT_PARTICIPANTS } from "./seed-data";
 
 export async function ensureSeed() {
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS studies (
+      id SERIAL PRIMARY KEY,
+      title TEXT NOT NULL,
+      year TEXT NOT NULL,
+      description TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at TIMESTAMP DEFAULT NOW() NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS participants (
+      id SERIAL PRIMARY KEY,
+      study_id INTEGER NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      federation TEXT,
+      country TEXT,
+      email TEXT,
+      phone TEXT,
+      created_at TIMESTAMP DEFAULT NOW() NOT NULL
+    );
+  `);
+
   const existing = await db.select({ id: studies.id }).from(studies).limit(1);
   if (existing.length > 0) return;
 
