@@ -1,5 +1,5 @@
 {
-  "name": "studies-management",
+  "name": "studies",
   "private": true,
   "scripts": {
     "dev": "next dev",
