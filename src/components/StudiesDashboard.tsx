@@ -218,12 +218,12 @@ export function StudiesDashboard({
           ))}
         </div>
 
-        <div className="relative w-full sm:w-72">
-          <span className="pointer-events-none absolute inset-y-0 start-3 flex items-center text-[var(--text-tertiary)]">
+        <div className="relative w-full sm:w-80">
+          <span className="pointer-events-none absolute inset-y-0 start-3.5 flex items-center text-[var(--text-tertiary)]">
             <IconSearch size={16} />
           </span>
           <input
-            className="input ps-9 py-2 text-sm"
+            className="input !ps-11 !pe-9 py-2 text-sm"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={t("searchStudies")}
@@ -231,7 +231,7 @@ export function StudiesDashboard({
           {search && (
             <button
               onClick={() => setSearch("")}
-              className="absolute inset-y-0 end-3 flex items-center text-xs font-bold text-[var(--text-tertiary)] hover:text-[var(--text)]"
+              className="absolute inset-y-0 end-3.5 flex items-center text-xs font-bold text-[var(--text-tertiary)] hover:text-[var(--text)]"
             >
               ✕
             </button>
