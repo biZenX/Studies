@@ -36,7 +36,7 @@ export function buildEmailHtml(opts: {
     </div>
     <!-- Body -->
     <div style="padding:36px 32px;">
-      <p style="margin:0;font-size:18px;color:#f8fafc;font-weight:700;">مرحباً {{ params.name }} 👋</p>
+      <p style="margin:0;font-size:18px;color:#f8fafc;font-weight:700;">مرحباً {{ params.name }}</p>
       <div style="margin:22px 0 28px;background:#1e293b;border:1px solid #334155;border-radius:16px;padding:22px 24px;">
         <p style="margin:0;font-size:16px;line-height:1.9;color:#cbd5e1;">${message}</p>
       </div>

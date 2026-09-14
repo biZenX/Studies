@@ -61,7 +61,10 @@ export function StudyModal({
           <input
             className="input"
             value={form.title}
-            onChange={(e) => setForm({ ...form, title: e.target.value })}
+            onChange={(e) => {
+              setForm({ ...form, title: e.target.value });
+              if (error) setError("");
+            }}
             placeholder={t("studyTitlePh")}
           />
         </Field>
@@ -71,7 +74,10 @@ export function StudyModal({
             <input
               className="input"
               value={form.year}
-              onChange={(e) => setForm({ ...form, year: e.target.value })}
+              onChange={(e) => {
+                setForm({ ...form, year: e.target.value });
+                if (error) setError("");
+              }}
               placeholder={t("yearPh")}
             />
           </Field>

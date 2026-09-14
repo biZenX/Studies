@@ -1,12 +1,14 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useLang } from "./lang";
 import { StudyModal, type StudyFormData } from "./StudyModal";
 import { ParticipantModal, type ParticipantFormData } from "./ParticipantModal";
 import { EmailModal } from "./EmailModal";
+import { ImportModal } from "./ImportModal";
+import { ExportModal } from "./ExportModal";
 import {
   Modal,
   CountryBadge,
@@ -21,33 +23,83 @@ import {
   IconUsers,
   IconGlobe,
   IconSearch,
+  IconUpload,
+  IconDownload,
+  IconCheckCircle,
 } from "./ui";
 import type { StudyWithCount, Participant } from "@/lib/types";
+import {
+  getLocalStudyDetail,
+  saveLocalStudy,
+  deleteLocalStudy,
+  saveLocalParticipant,
+  deleteLocalParticipant,
+  subscribeStorage,
+} from "@/lib/storage";
 
 export function StudyDetail({
+  studyId: propStudyId,
   study: initialStudy,
   participants: initialParticipants,
   brevoConfigured,
 }: {
-  study: StudyWithCount;
-  participants: Participant[];
-  brevoConfigured: boolean;
+  studyId?: number;
+  study?: StudyWithCount | null;
+  participants?: Participant[] | null;
+  brevoConfigured?: boolean;
 }) {
   const { t } = useLang();
   const router = useRouter();
 
-  const [study, setStudy] = useState(initialStudy);
-  const [participants, setParticipants] = useState(initialParticipants);
-  const [search, setSearch] = useState("");
+  const activeId = propStudyId || initialStudy?.id || 1;
 
+  // Local-first state initialization
+  const [study, setStudy] = useState<StudyWithCount | null>(() => {
+    if (typeof window !== "undefined") {
+      const local = getLocalStudyDetail(activeId);
+      if (local.study) return local.study;
+    }
+    return initialStudy || null;
+  });
+
+  const [participants, setParticipants] = useState<Participant[]>(() => {
+    if (typeof window !== "undefined") {
+      const local = getLocalStudyDetail(activeId);
+      if (local.study) return local.participants;
+    }
+    return initialParticipants || [];
+  });
+
+  const [search, setSearch] = useState("");
+  const [viewMode, setViewMode] = useState<"table" | "cards">("table");
+
+  // Modals
   const [studyModal, setStudyModal] = useState(false);
   const [participantModal, setParticipantModal] = useState(false);
   const [emailModal, setEmailModal] = useState(false);
+  const [importModal, setImportModal] = useState(false);
+  const [exportModal, setExportModal] = useState(false);
 
   const [editingParticipant, setEditingParticipant] = useState<Participant | null>(null);
   const [deletingParticipant, setDeletingParticipant] = useState<Participant | null>(null);
   const [deleteStudyOpen, setDeleteStudyOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string>("");
+
+  const reloadData = () => {
+    const local = getLocalStudyDetail(activeId);
+    if (local.study) {
+      setStudy(local.study);
+      setParticipants(local.participants);
+    }
+  };
+
+  useEffect(() => {
+    reloadData();
+    return subscribeStorage(() => {
+      reloadData();
+    });
+  }, [activeId]);
 
   const stats = useMemo(() => {
     const countries = new Set<string>();
@@ -71,14 +123,20 @@ export function StudyDetail({
         p.name.toLowerCase().includes(q) ||
         (p.country ?? "").toLowerCase().includes(q) ||
         (p.federation ?? "").toLowerCase().includes(q) ||
-        (p.email ?? "").toLowerCase().includes(q),
+        (p.email ?? "").toLowerCase().includes(q) ||
+        (p.phone ?? "").toLowerCase().includes(q)
     );
   }, [participants, search]);
 
   const validEmails = useMemo(
     () => participants.filter((p) => p.email && p.email.includes("@")).length,
-    [participants],
+    [participants]
   );
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(""), 4000);
+  };
 
   const openAdd = () => {
     setEditingParticipant(null);
@@ -91,44 +149,39 @@ export function StudyDetail({
   };
 
   const handleStudySubmit = async (data: StudyFormData) => {
+    if (!study) return;
     setSaving(true);
     try {
-      const res = await fetch(`/api/studies/${study.id}`, {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(data),
+      const updated = saveLocalStudy({
+        id: study.id,
+        title: data.title,
+        year: data.year,
+        description: data.description,
+        status: data.status,
       });
-      const updated = await res.json();
-      setStudy(updated);
+      setStudy({ ...updated, participantCount: participants.length });
       setStudyModal(false);
+      showToast("تم تحديث بيانات الدراسة بنجاح");
     } finally {
       setSaving(false);
     }
   };
 
   const handleParticipantSubmit = async (data: ParticipantFormData) => {
+    if (!study) return;
     setSaving(true);
     try {
-      if (editingParticipant) {
-        const res = await fetch(`/api/participants/${editingParticipant.id}`, {
-          method: "PUT",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(data),
-        });
-        const updated = await res.json();
-        setParticipants((prev) =>
-          prev.map((p) => (p.id === updated.id ? updated : p)),
-        );
-      } else {
-        const res = await fetch(`/api/studies/${study.id}/participants`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(data),
-        });
-        const created = await res.json();
-        setParticipants((prev) => [...prev, created]);
-      }
+      saveLocalParticipant(study.id, {
+        id: editingParticipant?.id,
+        name: data.name,
+        federation: data.federation,
+        country: data.country,
+        email: data.email,
+        phone: data.phone,
+      });
       setParticipantModal(false);
+      reloadData();
+      showToast(editingParticipant ? "تم تحديث بيانات المشارك" : "تمت إضافة المشارك بنجاح");
     } finally {
       setSaving(false);
     }
@@ -138,86 +191,143 @@ export function StudyDetail({
     if (!deletingParticipant) return;
     setSaving(true);
     try {
-      await fetch(`/api/participants/${deletingParticipant.id}`, {
-        method: "DELETE",
-      });
-      setParticipants((prev) => prev.filter((p) => p.id !== deletingParticipant.id));
+      deleteLocalParticipant(deletingParticipant.id);
       setDeletingParticipant(null);
+      reloadData();
+      showToast("تم حذف المشارك");
     } finally {
       setSaving(false);
     }
   };
 
   const handleDeleteStudy = async () => {
+    if (!study) return;
     setSaving(true);
     try {
-      await fetch(`/api/studies/${study.id}`, { method: "DELETE" });
+      deleteLocalStudy(study.id);
       router.push("/");
     } finally {
       setSaving(false);
     }
   };
 
+  const onImportSuccess = (count: number) => {
+    reloadData();
+    showToast(`تم استيراد ${count} مشارك بنجاح إلى هذه الدراسة`);
+  };
+
+  if (!study) {
+    return (
+      <div className="card flex flex-col items-center justify-center py-20 px-6 text-center">
+        <p className="text-lg font-bold text-[var(--text)]">لم يتم العثور على الدراسة المطلوبة</p>
+        <Link href="/" className="btn-primary mt-4 flex items-center gap-2 text-sm font-bold">
+          <IconBack size={16} />
+          <span>{t("backToStudies")}</span>
+        </Link>
+      </div>
+    );
+  }
+
   const statItems = [
-    { label: t("totalParticipants"), value: stats.participants, icon: <IconUsers size={18} />, tint: "#ecfdf5", color: "#059669" },
-    { label: t("countries"), value: stats.countries, icon: <IconGlobe size={18} />, tint: "#fdf4ff", color: "#a21caf" },
-    { label: t("withEmail"), value: stats.withEmail, icon: <IconMail size={18} />, tint: "#fff7ed", color: "#ea580c" },
+    {
+      label: t("totalParticipants"),
+      value: stats.participants,
+      icon: <IconUsers size={18} />,
+      tint: "#ecfdf5",
+      color: "#059669",
+    },
+    {
+      label: t("countries"),
+      value: stats.countries,
+      icon: <IconGlobe size={18} />,
+      tint: "#fdf4ff",
+      color: "#a21caf",
+    },
+    {
+      label: t("withEmail"),
+      value: stats.withEmail,
+      icon: <IconMail size={18} />,
+      tint: "#fff7ed",
+      color: "#ea580c",
+    },
   ];
 
   return (
-    <div className="animate-fade-up">
+    <div className="animate-fade-up pb-10">
+      {/* Toast Feedback */}
+      {toastMessage && (
+        <div className="fixed bottom-5 start-5 z-50 flex items-center gap-2.5 rounded-2xl bg-slate-900 px-4 py-3 text-xs font-bold text-white shadow-xl">
+          <IconCheckCircle size={16} className="text-emerald-400" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
+
       <Link
         href="/"
-        className="mb-5 inline-flex items-center gap-2 text-sm font-semibold text-[var(--text-secondary)] transition hover:text-[var(--text)]"
+        className="mb-5 inline-flex items-center gap-2 text-xs sm:text-sm font-bold text-[var(--text-secondary)] transition hover:text-[var(--text)]"
       >
         <IconBack size={16} />
-        {t("backToStudies")}
+        <span>{t("backToStudies")}</span>
       </Link>
 
-      <div className="card mb-6 p-6 sm:p-8">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
-            <div className="mb-2 flex flex-wrap items-center gap-2">
+      {/* Main Study Card */}
+      <div className="card mb-6 p-5 sm:p-7">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0 max-w-2xl">
+            <div className="mb-2.5 flex flex-wrap items-center gap-2">
               <span className="num inline-flex items-center rounded-full bg-[var(--bg)] px-3 py-1 text-xs font-bold text-[var(--text-secondary)]">
                 {study.year}
               </span>
               <StatusBadge status={study.status} label={t(study.status)} />
             </div>
-            <h1 className="text-2xl font-bold leading-snug sm:text-3xl">{study.title}</h1>
+            <h1 className="text-xl font-bold leading-snug sm:text-2xl lg:text-3xl text-[var(--text)]">
+              {study.title}
+            </h1>
             {study.description && (
-              <p className="mt-2 max-w-2xl text-sm leading-relaxed text-[var(--text-secondary)]">
+              <p className="mt-2 text-xs sm:text-sm leading-relaxed text-[var(--text-secondary)]">
                 {study.description}
               </p>
             )}
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            <button className="btn-ghost flex items-center gap-2 !py-2.5 text-sm" onClick={() => setStudyModal(true)}>
-              <IconEdit size={16} />
-              {t("editStudy")}
+          {/* Action buttons */}
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <button
+              className="btn-ghost flex items-center gap-1.5 !px-3.5 !py-2 text-xs font-bold"
+              onClick={() => setStudyModal(true)}
+            >
+              <IconEdit size={14} />
+              <span>{t("editStudy")}</span>
             </button>
             <button
-              className="btn-ghost flex items-center gap-2 !py-2.5 text-sm !text-red-600 hover:!border-red-200 hover:!bg-red-50"
+              className="btn-ghost flex items-center gap-1.5 !px-3.5 !py-2 text-xs font-bold !text-red-600 hover:!border-red-200 hover:!bg-red-50"
               onClick={() => setDeleteStudyOpen(true)}
             >
-              <IconTrash size={16} />
-              {t("deleteStudy")}
+              <IconTrash size={14} />
+              <span>{t("deleteStudy")}</span>
             </button>
-            <button className="btn-primary flex items-center gap-2 !py-2.5 text-sm" onClick={() => setEmailModal(true)}>
-              <IconMail size={16} />
-              {t("sendEmails")}
+            <button
+              className="btn-primary flex items-center gap-1.5 !px-3.5 !py-2 text-xs font-bold"
+              onClick={() => setEmailModal(true)}
+            >
+              <IconMail size={14} />
+              <span>{t("sendEmails")}</span>
             </button>
           </div>
         </div>
 
+        {/* Stats Row */}
         <div className="mt-6 grid grid-cols-1 gap-3 border-t border-[var(--border)] pt-5 sm:grid-cols-3">
           {statItems.map((s) => (
             <div key={s.label} className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl" style={{ background: s.tint, color: s.color }}>
+              <div
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
+                style={{ background: s.tint, color: s.color }}
+              >
                 {s.icon}
               </div>
               <div>
-                <p className="num text-lg font-bold leading-none">{s.value}</p>
+                <p className="num text-base sm:text-lg font-bold leading-none">{s.value}</p>
                 <p className="mt-1 text-xs text-[var(--text-secondary)]">{s.label}</p>
               </div>
             </div>
@@ -225,110 +335,267 @@ export function StudyDetail({
         </div>
       </div>
 
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+      {/* Participants Controls Bar */}
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative w-full sm:w-72">
           <span className="pointer-events-none absolute inset-y-0 start-3 flex items-center text-[var(--text-tertiary)]">
             <IconSearch size={16} />
           </span>
           <input
-            className="input ps-9 py-2.5 text-sm"
+            className="input ps-9 py-2 text-xs sm:text-sm"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={t("searchParticipants")}
           />
+          {search && (
+            <button
+              onClick={() => setSearch("")}
+              className="absolute inset-y-0 end-3 flex items-center text-xs font-bold text-[var(--text-tertiary)] hover:text-[var(--text)]"
+            >
+              ✕
+            </button>
+          )}
         </div>
-        <button className="btn-primary flex items-center gap-2 !py-2.5 text-sm" onClick={openAdd}>
-          <IconPlus size={16} />
-          {t("addParticipant")}
-        </button>
-      </div>
 
-      <div className="card overflow-hidden">
-        {filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center px-6 py-20 text-center">
-            <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-3xl bg-[var(--bg)] text-[var(--text-tertiary)]">
-              <IconUsers size={28} />
-            </div>
-            <p className="text-lg font-bold">{t("noParticipants")}</p>
-            <p className="mt-1 text-sm text-[var(--text-secondary)]">{t("noParticipantsSub")}</p>
-            <button className="btn-primary mt-5 flex items-center gap-2" onClick={openAdd}>
-              <IconPlus size={18} />
-              {t("addParticipant")}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Table / Cards toggle for mobile/tablet */}
+          <div className="flex rounded-xl bg-white p-0.5 border border-[var(--border)] sm:hidden">
+            <button
+              onClick={() => setViewMode("cards")}
+              className={`rounded-lg px-2.5 py-1 text-xs font-bold ${
+                viewMode === "cards" ? "bg-[var(--accent-tint)] text-[var(--accent-strong)]" : "text-[var(--text-secondary)]"
+              }`}
+            >
+              بطاقات
+            </button>
+            <button
+              onClick={() => setViewMode("table")}
+              className={`rounded-lg px-2.5 py-1 text-xs font-bold ${
+                viewMode === "table" ? "bg-[var(--accent-tint)] text-[var(--accent-strong)]" : "text-[var(--text-secondary)]"
+              }`}
+            >
+              جدول
             </button>
           </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] border-collapse text-right">
-              <thead>
-                <tr className="border-b border-[var(--border)] bg-[var(--bg)]/60 text-sm text-[var(--text-secondary)]">
-                  <th className="px-5 py-3.5 text-start font-semibold">#</th>
-                  <th className="px-5 py-3.5 text-start font-semibold">{t("name")}</th>
-                  <th className="px-5 py-3.5 text-start font-semibold">{t("federation")}</th>
-                  <th className="px-5 py-3.5 text-start font-semibold">{t("country")}</th>
-                  <th className="px-5 py-3.5 text-start font-semibold">{t("email")} / {t("phone")}</th>
-                  <th className="px-5 py-3.5 text-start font-semibold">{t("actions")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((p, i) => (
-                  <tr
-                    key={p.id}
-                    className="border-b border-[var(--border)] transition last:border-0 hover:bg-[var(--bg)]/60"
+
+          <button
+            className="btn-ghost flex items-center gap-1.5 !px-3.5 !py-2 text-xs font-bold"
+            onClick={() => setImportModal(true)}
+            title="استيراد كشف المشاركين من ملفات Excel أو Word أو CSV أو نص"
+          >
+            <IconUpload size={14} />
+            <span>{t("importParticipants")}</span>
+          </button>
+
+          <button
+            className="btn-ghost flex items-center gap-1.5 !px-3.5 !py-2 text-xs font-bold text-emerald-800 border-emerald-300/80 bg-emerald-50/50 hover:bg-emerald-50"
+            onClick={() => setExportModal(true)}
+            title="تصدير كشف موحد للمحاضرين بصيغة HTML مدمجة الـ CSS خالٍ من البريد والهاتف"
+          >
+            <IconDownload size={14} />
+            <span>{t("exportLecturersReport")}</span>
+          </button>
+
+          <button
+            className="btn-primary flex items-center gap-1.5 !px-3.5 !py-2 text-xs font-bold"
+            onClick={openAdd}
+          >
+            <IconPlus size={14} />
+            <span>{t("addParticipant")}</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Participants Content: Table or Cards */}
+      <div className="card overflow-hidden">
+        {filtered.length === 0 ? (
+          <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
+            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--bg)] text-[var(--text-tertiary)]">
+              <IconUsers size={26} />
+            </div>
+            {search ? (
+              <>
+                <p className="text-base font-bold text-[var(--text)]">{t("noResultsFound")}</p>
+                <p className="mt-1 text-xs text-[var(--text-secondary)]">{t("noResultsFoundSub")}</p>
+                <button
+                  className="btn-ghost mt-4 text-xs font-bold"
+                  onClick={() => setSearch("")}
+                >
+                  {t("clearSearch")}
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="text-base font-bold text-[var(--text)]">{t("noParticipants")}</p>
+                <p className="mt-1 max-w-md text-xs text-[var(--text-secondary)] leading-relaxed">
+                  {t("noParticipantsSub")}
+                </p>
+                <div className="mt-5 flex flex-wrap justify-center gap-3">
+                  <button
+                    className="btn-ghost flex items-center gap-2 text-xs font-bold"
+                    onClick={() => setImportModal(true)}
                   >
-                    <td className="num px-5 py-3.5 text-sm font-semibold text-[var(--text-tertiary)]">
-                      {i + 1}
-                    </td>
-                    <td className="px-5 py-3.5 font-semibold">{p.name}</td>
-                    <td className="px-5 py-3.5 text-sm text-[var(--text-secondary)]">
-                      {p.federation || "—"}
-                    </td>
-                    <td className="px-5 py-3.5">
-                      {p.country ? <CountryBadge country={p.country} /> : "—"}
-                    </td>
-                    <td className="px-5 py-3.5">
-                      <div className="flex flex-col gap-1 text-sm text-[var(--text-secondary)]">
-                        {p.email ? (
-                          <span dir="ltr" className="num flex items-center justify-end gap-1.5">
-                            {p.email}
-                            <IconMail size={13} className="text-[var(--text-tertiary)]" />
-                          </span>
-                        ) : (
-                          <span className="text-[var(--text-tertiary)]">—</span>
-                        )}
-                        {p.phone && (
-                          <span dir="ltr" className="num flex items-center justify-end gap-1.5">
-                            {p.phone}
-                            <IconPhone size={13} className="text-[var(--text-tertiary)]" />
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-5 py-3.5">
-                      <div className="flex gap-1">
-                        <button
-                          onClick={() => openEdit(p)}
-                          className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--text-tertiary)] transition hover:bg-[var(--bg)] hover:text-[var(--text)]"
-                          aria-label="Edit"
-                        >
-                          <IconEdit size={15} />
-                        </button>
-                        <button
-                          onClick={() => setDeletingParticipant(p)}
-                          className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--text-tertiary)] transition hover:bg-red-50 hover:text-red-600"
-                          aria-label="Delete"
-                        >
-                          <IconTrash size={15} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    <IconUpload size={15} />
+                    <span>{t("importParticipants")}</span>
+                  </button>
+                  <button
+                    className="btn-primary flex items-center gap-2 text-xs font-bold"
+                    onClick={openAdd}
+                  >
+                    <IconPlus size={15} />
+                    <span>{t("addParticipant")}</span>
+                  </button>
+                </div>
+              </>
+            )}
           </div>
+        ) : (
+          <>
+            {/* Mobile Cards View */}
+            <div
+              className={`p-3 space-y-2.5 sm:hidden ${
+                viewMode === "cards" ? "block" : "hidden"
+              }`}
+            >
+              {filtered.map((p, i) => (
+                <div
+                  key={p.id}
+                  className="rounded-xl border border-[var(--border)] bg-white p-3.5 transition shadow-2xs"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="num flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--bg)] text-[11px] font-bold text-[var(--text-secondary)]">
+                        {i + 1}
+                      </span>
+                      <h4 className="text-sm font-bold text-[var(--text)]">{p.name}</h4>
+                    </div>
+                    {p.country && <CountryBadge country={p.country} />}
+                  </div>
+
+                  {p.federation && (
+                    <p className="mt-1.5 ps-8 text-xs text-[var(--text-secondary)]">
+                      الاتحاد: <span className="font-semibold text-[var(--text)]">{p.federation}</span>
+                    </p>
+                  )}
+
+                  {(p.email || p.phone) && (
+                    <div className="mt-2.5 ps-8 flex flex-col gap-1 text-xs text-[var(--text-secondary)]">
+                      {p.email && (
+                        <span dir="ltr" className="num flex items-center justify-end gap-1.5">
+                          {p.email}
+                          <IconMail size={13} className="text-[var(--text-tertiary)]" />
+                        </span>
+                      )}
+                      {p.phone && (
+                        <span dir="ltr" className="num flex items-center justify-end gap-1.5">
+                          {p.phone}
+                          <IconPhone size={13} className="text-[var(--text-tertiary)]" />
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="mt-3 flex justify-end gap-2 border-t border-[var(--border)] pt-2.5">
+                    <button
+                      onClick={() => openEdit(p)}
+                      className="flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-bold text-[var(--text-secondary)] hover:bg-[var(--bg)]"
+                    >
+                      <IconEdit size={13} />
+                      تعديل
+                    </button>
+                    <button
+                      onClick={() => setDeletingParticipant(p)}
+                      className="flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-bold text-red-600 hover:bg-red-50"
+                    >
+                      <IconTrash size={13} />
+                      حذف
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Desktop and Tablet Table View */}
+            <div
+              className={`overflow-x-auto ${
+                viewMode === "cards" ? "hidden sm:block" : "block"
+              }`}
+            >
+              <table className="w-full min-w-[700px] border-collapse text-right">
+                <thead>
+                  <tr className="border-b border-[var(--border)] bg-[var(--bg)]/60 text-xs text-[var(--text-secondary)]">
+                    <th className="px-5 py-3.5 text-start font-bold">#</th>
+                    <th className="px-5 py-3.5 text-start font-bold">{t("name")}</th>
+                    <th className="px-5 py-3.5 text-start font-bold">{t("federation")}</th>
+                    <th className="px-5 py-3.5 text-start font-bold">{t("country")}</th>
+                    <th className="px-5 py-3.5 text-start font-bold">
+                      {t("email")} / {t("phone")}
+                    </th>
+                    <th className="px-5 py-3.5 text-start font-bold">{t("actions")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((p, i) => (
+                    <tr
+                      key={p.id}
+                      className="border-b border-[var(--border)] transition last:border-0 hover:bg-[var(--bg)]/50"
+                    >
+                      <td className="num px-5 py-3 text-xs font-semibold text-[var(--text-tertiary)]">
+                        {i + 1}
+                      </td>
+                      <td className="px-5 py-3 text-sm font-bold text-[var(--text)]">{p.name}</td>
+                      <td className="px-5 py-3 text-xs text-[var(--text-secondary)] font-medium">
+                        {p.federation || "—"}
+                      </td>
+                      <td className="px-5 py-3">
+                        {p.country ? <CountryBadge country={p.country} /> : "—"}
+                      </td>
+                      <td className="px-5 py-3">
+                        <div className="flex flex-col gap-1 text-xs text-[var(--text-secondary)]">
+                          {p.email ? (
+                            <span dir="ltr" className="num flex items-center justify-end gap-1.5">
+                              {p.email}
+                              <IconMail size={12} className="text-[var(--text-tertiary)]" />
+                            </span>
+                          ) : (
+                            <span className="text-[var(--text-tertiary)]">—</span>
+                          )}
+                          {p.phone && (
+                            <span dir="ltr" className="num flex items-center justify-end gap-1.5">
+                              {p.phone}
+                              <IconPhone size={12} className="text-[var(--text-tertiary)]" />
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-5 py-3">
+                        <div className="flex gap-1">
+                          <button
+                            onClick={() => openEdit(p)}
+                            className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--text-tertiary)] transition hover:bg-[var(--bg)] hover:text-[var(--text)]"
+                            aria-label="Edit"
+                          >
+                            <IconEdit size={14} />
+                          </button>
+                          <button
+                            onClick={() => setDeletingParticipant(p)}
+                            className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--text-tertiary)] transition hover:bg-red-50 hover:text-red-600"
+                            aria-label="Delete"
+                          >
+                            <IconTrash size={14} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
 
+      {/* Edit Study Modal */}
       <StudyModal
         open={studyModal}
         initial={{
@@ -342,6 +609,7 @@ export function StudyDetail({
         saving={saving}
       />
 
+      {/* Add / Edit Participant Modal */}
       <ParticipantModal
         open={participantModal}
         initial={
@@ -360,16 +628,35 @@ export function StudyDetail({
         saving={saving}
       />
 
+      {/* Email Announcement Modal */}
       <EmailModal
         open={emailModal}
         studyId={study.id}
         studyTitle={study.title}
         year={study.year}
         recipientCount={validEmails}
-        brevoConfigured={brevoConfigured}
+        brevoConfigured={brevoConfigured || false}
         onClose={() => setEmailModal(false)}
       />
 
+      {/* Multi-format Import Modal */}
+      <ImportModal
+        open={importModal}
+        studyId={study.id}
+        studyTitle={study.title}
+        onClose={() => setImportModal(false)}
+        onSuccess={onImportSuccess}
+      />
+
+      {/* Standalone HTML Lecturers Export Modal */}
+      <ExportModal
+        open={exportModal}
+        study={study}
+        participants={participants}
+        onClose={() => setExportModal(false)}
+      />
+
+      {/* Delete Participant Modal */}
       <Modal open={!!deletingParticipant} onClose={() => setDeletingParticipant(null)} title={t("delete")}>
         <div className="space-y-5">
           <div className="flex items-start gap-3">
@@ -377,24 +664,27 @@ export function StudyDetail({
               <IconTrash size={18} />
             </div>
             <div>
-              <p className="font-bold">{t("deleteConfirm")}</p>
-              <p className="mt-1 text-sm text-[var(--text-secondary)]">{t("deleteConfirmSub")}</p>
-              <p className="mt-2 text-sm font-semibold text-[var(--text-tertiary)]">
+              <p className="font-bold text-[var(--text)]">{t("deleteConfirm")}</p>
+              <p className="mt-1 text-xs leading-relaxed text-[var(--text-secondary)]">
+                {t("deleteConfirmSub")}
+              </p>
+              <p className="mt-2 text-xs font-bold text-slate-700 bg-slate-100 p-2 rounded-lg">
                 {deletingParticipant?.name}
               </p>
             </div>
           </div>
           <div className="flex justify-end gap-3">
-            <button className="btn-ghost" onClick={() => setDeletingParticipant(null)}>
+            <button className="btn-ghost text-xs" onClick={() => setDeletingParticipant(null)}>
               {t("cancel")}
             </button>
-            <button className="btn-danger" onClick={handleDeleteParticipant} disabled={saving}>
-              {saving ? <Spinner size={16} /> : t("delete")}
+            <button className="btn-danger text-xs font-bold" onClick={handleDeleteParticipant} disabled={saving}>
+              {saving ? <Spinner size={14} /> : t("delete")}
             </button>
           </div>
         </div>
       </Modal>
 
+      {/* Delete Study Modal */}
       <Modal open={deleteStudyOpen} onClose={() => setDeleteStudyOpen(false)} title={t("deleteStudy")}>
         <div className="space-y-5">
           <div className="flex items-start gap-3">
@@ -402,17 +692,21 @@ export function StudyDetail({
               <IconTrash size={18} />
             </div>
             <div>
-              <p className="font-bold">{t("deleteConfirm")}</p>
-              <p className="mt-1 text-sm text-[var(--text-secondary)]">{t("deleteConfirmSub")}</p>
-              <p className="mt-2 text-sm font-semibold text-[var(--text-tertiary)]">{study.title}</p>
+              <p className="font-bold text-[var(--text)]">{t("deleteConfirm")}</p>
+              <p className="mt-1 text-xs leading-relaxed text-[var(--text-secondary)]">
+                {t("deleteConfirmSub")}
+              </p>
+              <p className="mt-2 text-xs font-bold text-slate-700 bg-slate-100 p-2 rounded-lg">
+                {study.title} ({study.year})
+              </p>
             </div>
           </div>
           <div className="flex justify-end gap-3">
-            <button className="btn-ghost" onClick={() => setDeleteStudyOpen(false)}>
+            <button className="btn-ghost text-xs" onClick={() => setDeleteStudyOpen(false)}>
               {t("cancel")}
             </button>
-            <button className="btn-danger" onClick={handleDeleteStudy} disabled={saving}>
-              {saving ? <Spinner size={16} /> : t("delete")}
+            <button className="btn-danger text-xs font-bold" onClick={handleDeleteStudy} disabled={saving}>
+              {saving ? <Spinner size={14} /> : t("delete")}
             </button>
           </div>
         </div>

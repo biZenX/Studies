@@ -67,7 +67,10 @@ export function ParticipantModal({
           <input
             className="input"
             value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
+            onChange={(e) => {
+              setForm({ ...form, name: e.target.value });
+              if (error) setError("");
+            }}
             placeholder={t("namePh")}
           />
         </Field>

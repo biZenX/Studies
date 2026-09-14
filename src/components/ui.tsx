@@ -80,8 +80,55 @@ export const IconLayers = ({ className, size = 18 }: IconProps) => (
 );
 
 export const IconBack = ({ className, size = 18 }: IconProps) => (
-  <svg {...svgProps(size, className)}>
+  <svg {...svgProps(size, `rtl:rotate-180 transition-transform ${className || ""}`)}>
     <path d="M19 12H5M12 19l-7-7 7-7" />
+  </svg>
+);
+
+export const IconUpload = ({ className, size = 18 }: IconProps) => (
+  <svg {...svgProps(size, className)}>
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+    <polyline points="17 8 12 3 7 8" />
+    <line x1="12" y1="3" x2="12" y2="15" />
+  </svg>
+);
+
+export const IconDownload = ({ className, size = 18 }: IconProps) => (
+  <svg {...svgProps(size, className)}>
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+    <polyline points="7 10 12 15 17 10" />
+    <line x1="12" y1="15" x2="12" y2="3" />
+  </svg>
+);
+
+export const IconFileText = ({ className, size = 18 }: IconProps) => (
+  <svg {...svgProps(size, className)}>
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+    <polyline points="14 2 14 8 20 8" />
+    <line x1="16" y1="13" x2="8" y2="13" />
+    <line x1="16" y1="17" x2="8" y2="17" />
+    <polyline points="10 9 9 9 8 9" />
+  </svg>
+);
+
+export const IconFilter = ({ className, size = 18 }: IconProps) => (
+  <svg {...svgProps(size, className)}>
+    <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+  </svg>
+);
+
+export const IconPrinter = ({ className, size = 18 }: IconProps) => (
+  <svg {...svgProps(size, className)}>
+    <polyline points="6 9 6 2 18 2 18 9" />
+    <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+    <rect x="6" y="14" width="12" height="8" />
+  </svg>
+);
+
+export const IconCheckCircle = ({ className, size = 18 }: IconProps) => (
+  <svg {...svgProps(size, className)}>
+    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+    <polyline points="22 4 12 14.01 9 11.01" />
   </svg>
 );
 
@@ -138,13 +185,13 @@ export function Modal({
       onClick={onClose}
     >
       <div
-        className={`animate-scale-in card w-full overflow-hidden bg-white sm:rounded-3xl ${
-          wide ? "sm:max-w-2xl" : "sm:max-w-lg"
+        className={`animate-scale-in card max-h-[92vh] w-full overflow-hidden bg-white rounded-t-3xl sm:rounded-3xl ${
+          wide ? "sm:max-w-3xl" : "sm:max-w-lg"
         }`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-[var(--border)] px-6 py-4">
-          <h3 className="text-base font-bold">{title}</h3>
+          <h3 className="text-base font-bold text-[var(--text)]">{title}</h3>
           <button
             onClick={onClose}
             className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--text-tertiary)] transition hover:bg-[var(--bg)] hover:text-[var(--text)]"
@@ -153,7 +200,7 @@ export function Modal({
             <IconX size={18} />
           </button>
         </div>
-        <div className="max-h-[75vh] overflow-y-auto px-6 py-5">{children}</div>
+        <div className="max-h-[calc(92vh-70px)] overflow-y-auto px-5 py-5 sm:px-6">{children}</div>
       </div>
     </div>
   );
