@@ -1,13 +1,29 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
+import { IBM_Plex_Sans_Arabic, Inter } from "next/font/google";
 import "./globals.css";
 import { AppShell } from "@/components/AppShell";
 import { PwaRegister } from "@/components/PwaRegister";
+
+const ibmPlexArabic = IBM_Plex_Sans_Arabic({
+  subsets: ["arabic"],
+  weight: ["300", "400", "500", "600", "700"],
+  variable: "--font-ibm-plex-arabic",
+  display: "swap",
+});
+
+const inter = Inter({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-inter",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "مساحات الدراسات — منظومة إدارة الدراسات التدريبية والمشاركين",
   description: "منظومة أكاديمية متكاملة لتنظيم وإدارة الدراسات والبرامج التدريبية واستخراج كشوف المشاركين الرسمية.",
   applicationName: "مساحات الدراسات",
+  manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
@@ -29,15 +45,11 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="ar" dir="rtl">
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@300;400;500;600;700&family=Inter:wght@400;500;600;700&display=swap"
-          rel="stylesheet"
-        />
-      </head>
+    <html
+      lang="ar"
+      dir="rtl"
+      className={`${ibmPlexArabic.variable} ${inter.variable}`}
+    >
       <body className="antialiased selection:bg-emerald-100 selection:text-emerald-900">
         <PwaRegister />
         <AppShell>{children}</AppShell>
@@ -45,3 +57,4 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     </html>
   );
 }
+

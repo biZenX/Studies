@@ -16,11 +16,17 @@ function createPool(): Pool {
     connectionString.includes("localhost") ||
     connectionString.includes("127.0.0.1");
 
-  return new Pool({
+  const pool = new Pool({
     connectionString,
     ssl: isLocal ? false : { rejectUnauthorized: false },
-    connectionTimeoutMillis: 10000,
+    connectionTimeoutMillis: 4000,
   });
+
+  pool.on("error", (err) => {
+    console.error("Postgres pool error:", err);
+  });
+
+  return pool;
 }
 
 export function getPool(): Pool {

@@ -8,15 +8,25 @@ export default async function HomePage() {
   let studies = null;
   let stats = null;
 
-  try {
-    await ensureSeed();
-    const data = await getDashboardData();
-    studies = data.studies;
-    stats = data.stats;
-  } catch (error) {
-    // Server database is not connected or running offline.
-    // Client-side LocalStorage will provide data automatically.
-    console.warn("Database not reachable, operating in Local-First mode:", error);
+  if (process.env.DATABASE_URL) {
+    try {
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Database timeout")), 3000)
+      );
+
+      const data = await Promise.race([
+        (async () => {
+          await ensureSeed();
+          return await getDashboardData();
+        })(),
+        timeoutPromise,
+      ]);
+
+      studies = data.studies;
+      stats = data.stats;
+    } catch (error) {
+      console.warn("Database not reachable, operating in Local-First mode:", error);
+    }
   }
 
   return <StudiesDashboard initialStudies={studies} initialStats={stats} />;

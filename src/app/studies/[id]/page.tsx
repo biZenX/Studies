@@ -18,12 +18,19 @@ export default async function StudyPage({
   let study: StudyWithCount | null = null;
   let participants: Participant[] = [];
 
-  try {
-    const res = await getStudyDetail(studyId);
-    study = res.study;
-    participants = res.participants;
-  } catch (error) {
-    console.warn("Database not reachable for study detail, using local-first storage:", error);
+  if (process.env.DATABASE_URL) {
+    try {
+      const res = await Promise.race([
+        getStudyDetail(studyId),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("Database timeout")), 3000)
+        ),
+      ]);
+      study = res.study;
+      participants = res.participants;
+    } catch (error) {
+      console.warn("Database not reachable for study detail, using local-first storage:", error);
+    }
   }
 
   return (
