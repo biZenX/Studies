@@ -140,8 +140,8 @@ export function AppShell({ children }: { children: ReactNode }) {
         <Sidebar />
         <div className="flex min-w-0 flex-1 flex-col">
           <MobileBar />
-          <main className="flex-1 px-3 py-5 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
-            <div className="mx-auto w-full max-w-6xl">{children}</div>
+          <main className="flex-1 px-3 py-5 sm:px-6 sm:py-7 lg:px-8 lg:py-8 xl:px-10">
+            <div className="mx-auto w-full max-w-[1600px]">{children}</div>
           </main>
         </div>
       </div>

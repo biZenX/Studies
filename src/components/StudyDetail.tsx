@@ -273,7 +273,7 @@ export function StudyDetail({
       {/* Main Study Card */}
       <div className="card mb-6 p-5 sm:p-7">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-          <div className="min-w-0 max-w-2xl">
+          <div className="min-w-0 flex-1 max-w-4xl">
             <div className="mb-2.5 flex flex-wrap items-center gap-2">
               <span className="num inline-flex items-center rounded-full bg-[var(--bg)] px-3 py-1 text-xs font-bold text-[var(--text-secondary)]">
                 {study.year}
