@@ -1,24 +1,32 @@
 import type { Participant, Study } from "./types";
 
 export function generateLecturerHtmlReport(
-  study: Pick<Study, "title" | "year" | "description">,
-  participants: Participant[]
+  study?: Pick<Study, "title" | "year" | "description"> | null,
+  participants: Participant[] = []
 ): string {
+  const safeStudy = {
+    title: study?.title || "كشف المشاركين",
+    year: study?.year || String(new Date().getFullYear()),
+    description: study?.description || "",
+  };
+  const safeParticipants = Array.isArray(participants) ? participants : [];
+
   const generatedDate = new Intl.DateTimeFormat("ar-EG", {
     dateStyle: "full",
   }).format(new Date());
 
-  const rowsHtml = participants
+  const rowsHtml = safeParticipants
     .map((p, idx) => {
-      const countryBadge = p.country
+      const countryBadge = p?.country
         ? `<span class="badge">${escapeHtml(p.country)}</span>`
         : "—";
-      const federationText = p.federation ? escapeHtml(p.federation) : "—";
+      const federationText = p?.federation ? escapeHtml(p.federation) : "—";
+      const nameText = escapeHtml(p?.name || "بدون اسم");
 
       return `
       <tr>
         <td class="num text-center">${idx + 1}</td>
-        <td class="name-cell">${escapeHtml(p.name)}</td>
+        <td class="name-cell">${nameText}</td>
         <td class="text-center">${countryBadge}</td>
         <td class="text-center federation-cell">${federationText}</td>
         <td class="attendance-cell">
@@ -36,7 +44,7 @@ export function generateLecturerHtmlReport(
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>كشف المحاضرين — ${escapeHtml(study.title)}</title>
+  <title>كشف المحاضرين — ${escapeHtml(safeStudy.title)}</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap');
 
@@ -362,8 +370,8 @@ export function generateLecturerHtmlReport(
       <div class="header-title-box">
         <div class="academic-emblem">AADC CAIRO — الأكاديمية العربية للتدريب والتطوير</div>
         <h1>كشف المشاركين المعتمد — خاص بالسادة المحاضرين</h1>
-        <p class="study-title">${escapeHtml(study.title)}</p>
-        <p class="study-meta">الدورة التدريبية لعام ${escapeHtml(study.year)}</p>
+        <p class="study-title">${escapeHtml(safeStudy.title)}</p>
+        <p class="study-meta">الدورة التدريبية لعام ${escapeHtml(safeStudy.year)}</p>
       </div>
       <div class="header-badge-box">
         <div class="report-date">تاريخ الاستخراج: ${generatedDate}</div>
@@ -373,7 +381,7 @@ export function generateLecturerHtmlReport(
     <div class="stats-bar">
       <div class="stats-item">
         <span>إجمالي المشاركين:</span>
-        <strong>${participants.length}</strong>
+        <strong>${safeParticipants.length}</strong>
       </div>
       <div class="stats-item" style="margin-right: 24px;">
         <span>الحالة:</span>
@@ -416,8 +424,41 @@ export function generateLecturerHtmlReport(
 </html>`;
 }
 
-function escapeHtml(str: string): string {
-  return str
+export function downloadLecturerReport(
+  study?: Pick<Study, "title" | "year" | "description"> | null,
+  participants: Participant[] = []
+): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const htmlContent = generateLecturerHtmlReport(study, participants);
+    const cleanTitle = (study?.title || "كشف_المشاركين")
+      .replace(/[^\w\u0600-\u06FF\s-]/g, "")
+      .trim()
+      .replace(/\s+/g, "_") || "كشف";
+    const year = study?.year || new Date().getFullYear();
+    const fileName = `كشف_محاضرين_${cleanTitle}_${year}.html`;
+
+    const blob = new Blob([htmlContent], { type: "text/html;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 250);
+    return true;
+  } catch (err) {
+    console.error("Export download failed:", err);
+    return false;
+  }
+}
+
+function escapeHtml(str: any): string {
+  if (str === null || str === undefined) return "";
+  return String(str)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")

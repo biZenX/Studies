@@ -2,7 +2,7 @@
 
 import { useMemo, useRef } from "react";
 import { Modal, IconDownload, IconPrinter } from "./ui";
-import { generateLecturerHtmlReport } from "@/lib/exporter";
+import { generateLecturerHtmlReport, downloadLecturerReport } from "@/lib/exporter";
 import type { Participant, Study } from "@/lib/types";
 
 export function ExportModal({
@@ -12,29 +12,19 @@ export function ExportModal({
   onClose,
 }: {
   open: boolean;
-  study: Pick<Study, "title" | "year" | "description">;
+  study?: Pick<Study, "title" | "year" | "description"> | null;
   participants: Participant[];
   onClose: () => void;
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const htmlContent = useMemo(() => {
+    if (!open) return "";
     return generateLecturerHtmlReport(study, participants);
-  }, [study, participants]);
+  }, [open, study, participants]);
 
   const handleDownload = () => {
-    const cleanTitle = study.title.replace(/[^\w\u0600-\u06FF\s-]/g, "").trim().replace(/\s+/g, "_");
-    const fileName = `كشف_محاضرين_${cleanTitle}_${study.year}.html`;
-
-    const blob = new Blob([htmlContent], { type: "text/html;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = fileName;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    downloadLecturerReport(study, participants);
   };
 
   const handlePrint = () => {

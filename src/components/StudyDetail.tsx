@@ -25,8 +25,10 @@ import {
   IconSearch,
   IconUpload,
   IconDownload,
+  IconPrinter,
   IconCheckCircle,
 } from "./ui";
+import { downloadLecturerReport } from "@/lib/exporter";
 import type { StudyWithCount, Participant } from "@/lib/types";
 import {
   getLocalStudyDetail,
@@ -216,6 +218,19 @@ export function StudyDetail({
     showToast(`تم استيراد ${count} مشارك بنجاح إلى هذه الدراسة`);
   };
 
+  const handleDirectExport = () => {
+    if (!study) {
+      showToast("يرجى الانتظار حتى اكتمال تحميل بيانات الدراسة");
+      return;
+    }
+    const success = downloadLecturerReport(study, participants);
+    if (success) {
+      showToast(`تم تصدير كشف المحاضرين بنجاح (${participants.length} مشارك)`);
+    } else {
+      showToast("تعذر تصدير الملف، يرجى المحاولة لاحقاً");
+    }
+  };
+
   if (!study) {
     return (
       <div className="card flex flex-col items-center justify-center py-20 px-6 text-center">
@@ -389,11 +404,20 @@ export function StudyDetail({
 
           <button
             className="btn-ghost flex items-center gap-1.5 !px-3.5 !py-2 text-xs font-bold text-emerald-800 border-emerald-300/80 bg-emerald-50/50 hover:bg-emerald-50"
-            onClick={() => setExportModal(true)}
-            title="تصدير كشف موحد للمحاضرين بصيغة HTML مدمجة الـ CSS خالٍ من البريد والهاتف"
+            onClick={handleDirectExport}
+            title="تصدير وتحميل كشف المحاضرين المعتمد فوراً (ملف HTML مدمج الـ CSS خالٍ من البريد والهاتف)"
           >
             <IconDownload size={14} />
             <span>{t("exportLecturersReport")}</span>
+          </button>
+
+          <button
+            className="btn-ghost flex items-center gap-1.5 !px-3 !py-2 text-xs font-bold text-[var(--text-secondary)]"
+            onClick={() => setExportModal(true)}
+            title="معاينة كشف المحاضرين وطباعته مباشرة"
+          >
+            <IconPrinter size={14} />
+            <span>معاينة وطباعة</span>
           </button>
 
           <button
