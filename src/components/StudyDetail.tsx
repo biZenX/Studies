@@ -1,14 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useLang } from "./lang";
 import { StudyModal, type StudyFormData } from "./StudyModal";
 import { ParticipantModal, type ParticipantFormData } from "./ParticipantModal";
 import { EmailModal } from "./EmailModal";
-import { ImportModal } from "./ImportModal";
-import { ExportModal } from "./ExportModal";
 import {
   Modal,
   CountryBadge,
@@ -25,10 +23,10 @@ import {
   IconSearch,
   IconUpload,
   IconDownload,
-  IconPrinter,
   IconCheckCircle,
 } from "./ui";
 import { downloadLecturerReport } from "@/lib/exporter";
+import { parseFile } from "@/lib/parsers";
 import type { StudyWithCount, Participant } from "@/lib/types";
 import {
   getLocalStudyDetail,
@@ -36,6 +34,7 @@ import {
   deleteLocalStudy,
   saveLocalParticipant,
   deleteLocalParticipant,
+  bulkAddLocalParticipants,
   subscribeStorage,
 } from "@/lib/storage";
 
@@ -79,8 +78,7 @@ export function StudyDetail({
   const [studyModal, setStudyModal] = useState(false);
   const [participantModal, setParticipantModal] = useState(false);
   const [emailModal, setEmailModal] = useState(false);
-  const [importModal, setImportModal] = useState(false);
-  const [exportModal, setExportModal] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [editingParticipant, setEditingParticipant] = useState<Participant | null>(null);
   const [deletingParticipant, setDeletingParticipant] = useState<Participant | null>(null);
@@ -213,9 +211,55 @@ export function StudyDetail({
     }
   };
 
-  const onImportSuccess = (count: number) => {
-    reloadData();
-    showToast(`تم استيراد ${count} مشارك بنجاح إلى هذه الدراسة`);
+  const handleDirectImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !study) return;
+
+    showToast(`جارٍ استيراد المشاركين من "${file.name}"...`);
+    try {
+      const data = await parseFile(file);
+      if (!data || !data.rows || data.rows.length === 0) {
+        showToast("لم يتم العثور على بيانات صالحة داخل الملف");
+        return;
+      }
+
+      const { nameIdx, countryIdx, federationIdx, emailIdx, phoneIdx } = data.suggestedMapping;
+      const toImport: Array<{
+        name: string;
+        country: string | null;
+        federation: string | null;
+        email: string | null;
+        phone: string | null;
+      }> = [];
+
+      for (const row of data.rows) {
+        const name = (row[nameIdx >= 0 ? nameIdx : 0] ?? "").trim();
+        if (!name) continue;
+
+        const country = countryIdx >= 0 && row[countryIdx] ? row[countryIdx].trim() : null;
+        const federation = federationIdx >= 0 && row[federationIdx] ? row[federationIdx].trim() : country;
+        const email = emailIdx >= 0 && row[emailIdx] ? row[emailIdx].trim() : null;
+        const phone = phoneIdx >= 0 && row[phoneIdx] ? row[phoneIdx].trim() : null;
+
+        toImport.push({ name, country, federation, email, phone });
+      }
+
+      if (toImport.length === 0) {
+        showToast("لم يتم العثور على أسماء مشاركين صالحة داخل الملف");
+        return;
+      }
+
+      bulkAddLocalParticipants(study.id, toImport);
+      reloadData();
+      showToast(`تم استيراد ${toImport.length} مشارك بنجاح`);
+    } catch (err) {
+      console.error("Direct import error:", err);
+      showToast(err instanceof Error ? err.message : "حدث خطأ أثناء قراءة الملف");
+    } finally {
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
   };
 
   const handleDirectExport = () => {
@@ -393,10 +437,18 @@ export function StudyDetail({
             </button>
           </div>
 
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx,.xls,.docx,.doc,.csv,.tsv,.txt,.csx"
+            className="hidden"
+            onChange={handleDirectImport}
+          />
+
           <button
             className="btn-ghost flex items-center gap-1.5 !px-3.5 !py-2 text-xs font-bold"
-            onClick={() => setImportModal(true)}
-            title="استيراد كشف المشاركين من ملفات Excel أو Word أو CSV أو نص"
+            onClick={() => fileInputRef.current?.click()}
+            title="استيراد كشف المشاركين فوراً من ملفات Excel أو Word أو CSV أو نص"
           >
             <IconUpload size={14} />
             <span>{t("importParticipants")}</span>
@@ -409,15 +461,6 @@ export function StudyDetail({
           >
             <IconDownload size={14} />
             <span>{t("exportLecturersReport")}</span>
-          </button>
-
-          <button
-            className="btn-ghost flex items-center gap-1.5 !px-3 !py-2 text-xs font-bold text-[var(--text-secondary)]"
-            onClick={() => setExportModal(true)}
-            title="معاينة كشف المحاضرين وطباعته مباشرة"
-          >
-            <IconPrinter size={14} />
-            <span>معاينة وطباعة</span>
           </button>
 
           <button
@@ -457,7 +500,7 @@ export function StudyDetail({
                 <div className="mt-5 flex flex-wrap justify-center gap-3">
                   <button
                     className="btn-ghost flex items-center gap-2 text-xs font-bold"
-                    onClick={() => setImportModal(true)}
+                    onClick={() => fileInputRef.current?.click()}
                   >
                     <IconUpload size={15} />
                     <span>{t("importParticipants")}</span>
@@ -661,23 +704,6 @@ export function StudyDetail({
         recipientCount={validEmails}
         brevoConfigured={brevoConfigured || false}
         onClose={() => setEmailModal(false)}
-      />
-
-      {/* Multi-format Import Modal */}
-      <ImportModal
-        open={importModal}
-        studyId={study.id}
-        studyTitle={study.title}
-        onClose={() => setImportModal(false)}
-        onSuccess={onImportSuccess}
-      />
-
-      {/* Standalone HTML Lecturers Export Modal */}
-      <ExportModal
-        open={exportModal}
-        study={study}
-        participants={participants}
-        onClose={() => setExportModal(false)}
       />
 
       {/* Delete Participant Modal */}

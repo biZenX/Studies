@@ -17,9 +17,7 @@ export function generateLecturerHtmlReport(
 
   const rowsHtml = safeParticipants
     .map((p, idx) => {
-      const countryBadge = p?.country
-        ? `<span class="badge">${escapeHtml(p.country)}</span>`
-        : "—";
+      const countryText = p?.country ? escapeHtml(p.country) : "—";
       const federationText = p?.federation ? escapeHtml(p.federation) : "—";
       const nameText = escapeHtml(p?.name || "بدون اسم");
 
@@ -27,7 +25,7 @@ export function generateLecturerHtmlReport(
       <tr>
         <td class="num text-center">${idx + 1}</td>
         <td class="name-cell">${nameText}</td>
-        <td class="text-center">${countryBadge}</td>
+        <td class="text-center country-cell">${countryText}</td>
         <td class="text-center federation-cell">${federationText}</td>
         <td class="attendance-cell">
           <div class="checkbox-box"></div>
@@ -97,23 +95,23 @@ export function generateLecturerHtmlReport(
     }
 
     .btn-print {
-      background: var(--primary);
+      background: #0f172a;
       color: #ffffff;
-      border: none;
-      border-radius: 999px;
-      padding: 10px 22px;
-      font-size: 14px;
+      border: 1px solid #0f172a;
+      border-radius: 6px;
+      padding: 8px 18px;
+      font-size: 13px;
       font-weight: 600;
       cursor: pointer;
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      transition: background 0.2s ease;
+      transition: background 0.15s ease;
       font-family: inherit;
     }
 
     .btn-print:hover {
-      background: var(--primary-dark);
+      background: #1e293b;
     }
 
     /* Official Academic Header */
@@ -121,29 +119,36 @@ export function generateLecturerHtmlReport(
       display: flex;
       justify-content: space-between;
       align-items: flex-start;
-      border-bottom: 2px solid var(--primary);
-      padding-bottom: 24px;
+      border-bottom: 2px solid #0f172a;
+      padding-bottom: 18px;
       margin-bottom: 24px;
     }
 
-    .header-title-box h1 {
-      font-size: 22px;
-      font-weight: 700;
-      color: var(--text);
-      line-height: 1.3;
+    .org-sub {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-muted);
       margin-bottom: 6px;
     }
 
+    .header-title-box h1 {
+      font-size: 20px;
+      font-weight: 700;
+      color: #0f172a;
+      line-height: 1.3;
+      margin-bottom: 4px;
+    }
+
     .header-title-box .study-title {
-      font-size: 18px;
-      font-weight: 600;
-      color: var(--primary);
+      font-size: 17px;
+      font-weight: 700;
+      color: var(--primary-dark);
       margin-bottom: 4px;
     }
 
     .header-title-box .study-meta {
       font-size: 13px;
-      color: var(--text-muted);
+      color: var(--text);
     }
 
     .header-badge-box {
@@ -151,46 +156,10 @@ export function generateLecturerHtmlReport(
       flex-shrink: 0;
     }
 
-    .academic-emblem {
-      display: inline-block;
-      background: var(--primary-light);
-      border: 1px solid #a7f3d0;
-      color: var(--primary-dark);
-      padding: 6px 14px;
-      border-radius: 999px;
-      font-size: 12px;
-      font-weight: 700;
-      letter-spacing: 0.5px;
-      margin-bottom: 8px;
-    }
-
     .report-date {
       font-size: 12px;
       color: var(--text-muted);
       direction: rtl;
-    }
-
-    /* Stats bar */
-    .stats-bar {
-      display: flex;
-      gap: 16px;
-      margin-bottom: 24px;
-      background: #f1f5f9;
-      padding: 12px 18px;
-      border-radius: 12px;
-      font-size: 13px;
-      color: var(--text);
-    }
-
-    .stats-item {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .stats-item strong {
-      color: var(--primary-dark);
-      font-size: 15px;
     }
 
     /* Table styles */
@@ -241,15 +210,10 @@ export function generateLecturerHtmlReport(
       min-width: 180px;
     }
 
-    .badge {
-      display: inline-block;
-      padding: 3px 10px;
-      background: #e0f2fe;
-      color: #0369a1;
-      border-radius: 999px;
-      font-size: 12px;
+    .country-cell {
       font-weight: 600;
-      white-space: nowrap;
+      color: #334155;
+      font-size: 13px;
     }
 
     .federation-cell {
@@ -368,26 +332,15 @@ export function generateLecturerHtmlReport(
 
     <header class="header">
       <div class="header-title-box">
-        <div class="academic-emblem">AADC CAIRO — الأكاديمية العربية للتدريب والتطوير</div>
+        <p class="org-sub">الأكاديمية العربية للتدريب والتطوير (AADC Cairo)</p>
         <h1>كشف المشاركين المعتمد — خاص بالسادة المحاضرين</h1>
         <p class="study-title">${escapeHtml(safeStudy.title)}</p>
-        <p class="study-meta">الدورة التدريبية لعام ${escapeHtml(safeStudy.year)}</p>
+        <p class="study-meta">الدورة التدريبية لعام ${escapeHtml(safeStudy.year)} &bull; إجمالي عدد المشاركين: <strong>${safeParticipants.length}</strong> مشارك</p>
       </div>
       <div class="header-badge-box">
         <div class="report-date">تاريخ الاستخراج: ${generatedDate}</div>
       </div>
     </header>
-
-    <div class="stats-bar">
-      <div class="stats-item">
-        <span>إجمالي المشاركين:</span>
-        <strong>${safeParticipants.length}</strong>
-      </div>
-      <div class="stats-item" style="margin-right: 24px;">
-        <span>الحالة:</span>
-        <strong style="color: var(--primary-dark);">معتمد رسميًا</strong>
-      </div>
-    </div>
 
     <table>
       <thead>
