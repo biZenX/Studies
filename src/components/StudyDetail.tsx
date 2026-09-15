@@ -483,7 +483,6 @@ export function StudyDetail({
             {search ? (
               <>
                 <p className="text-base font-bold text-[var(--text)]">{t("noResultsFound")}</p>
-                <p className="mt-1 text-xs text-[var(--text-secondary)]">{t("noResultsFoundSub")}</p>
                 <button
                   className="btn-ghost mt-4 text-xs font-bold"
                   onClick={() => setSearch("")}
@@ -494,9 +493,6 @@ export function StudyDetail({
             ) : (
               <>
                 <p className="text-base font-bold text-[var(--text)]">{t("noParticipants")}</p>
-                <p className="mt-1 max-w-md text-xs text-[var(--text-secondary)] leading-relaxed">
-                  {t("noParticipantsSub")}
-                </p>
                 <div className="mt-5 flex flex-wrap justify-center gap-3">
                   <button
                     className="btn-ghost flex items-center gap-2 text-xs font-bold"

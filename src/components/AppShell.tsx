@@ -36,9 +36,8 @@ function Sidebar() {
         <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-600 to-teal-600 text-white shadow-md shadow-emerald-600/20">
           <AcademicLogo size={22} />
         </div>
-        <div className="leading-tight">
-          <p className="text-[15px] font-bold text-[var(--text)]">{t("appName")}</p>
-          <p className="text-[11px] font-medium text-[var(--text-tertiary)]">{t("appTagline")}</p>
+        <div>
+          <p className="text-base font-bold text-[var(--text)]">{t("appName")}</p>
         </div>
       </div>
 

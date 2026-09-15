@@ -168,15 +168,10 @@ export function StudiesDashboard({
   return (
     <div className="animate-fade-up">
       {/* Header */}
-      <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl text-[var(--text)]">
-            {t("welcome")}
-          </h1>
-          <p className="mt-1.5 text-sm text-[var(--text-secondary)] leading-relaxed">
-            {t("welcomeSub")}
-          </p>
-        </div>
+      <div className="mb-8 flex items-center justify-between gap-4">
+        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl text-[var(--text)]">
+          {t("studies")}
+        </h1>
         <button className="btn-primary flex items-center gap-2" onClick={openCreate}>
           <IconPlus size={18} />
           <span>{t("newStudy")}</span>
@@ -256,9 +251,6 @@ export function StudiesDashboard({
           {search || statusFilter !== "all" ? (
             <>
               <p className="text-base font-bold text-[var(--text)]">{t("noResultsFound")}</p>
-              <p className="mt-1 text-xs text-[var(--text-secondary)]">
-                {t("noResultsFoundSub")}
-              </p>
               <button
                 className="btn-ghost mt-4 text-xs font-bold"
                 onClick={() => {
@@ -272,7 +264,6 @@ export function StudiesDashboard({
           ) : (
             <>
               <p className="text-base font-bold text-[var(--text)]">{t("noStudies")}</p>
-              <p className="mt-1 text-xs text-[var(--text-secondary)]">{t("noStudiesSub")}</p>
               <button className="btn-primary mt-5 flex items-center gap-2" onClick={openCreate}>
                 <IconPlus size={16} />
                 <span>{t("newStudy")}</span>
