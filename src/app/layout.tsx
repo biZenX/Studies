@@ -20,14 +20,14 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "مساحات الدراسات — منظومة إدارة الدراسات التدريبية والمشاركين",
-  description: "منظومة أكاديمية متكاملة لتنظيم وإدارة الدراسات والبرامج التدريبية واستخراج كشوف المشاركين الرسمية.",
-  applicationName: "مساحات الدراسات",
+  title: "سجل الدراسات",
+  description: "تسجيل الدراسات والمشاركين وتصدير الكشوف كـ HTML",
+  applicationName: "سجل الدراسات",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "مساحات الدراسات",
+    title: "سجل الدراسات",
   },
   icons: {
     icon: "/icon-192.png",

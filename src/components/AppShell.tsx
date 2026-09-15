@@ -38,7 +38,7 @@ function Sidebar() {
         </div>
         <div className="leading-tight">
           <p className="text-[15px] font-bold text-[var(--text)]">{t("appName")}</p>
-          <p className="text-[11px] font-semibold text-[var(--text-tertiary)]">AADC Cairo</p>
+          <p className="text-[11px] font-medium text-[var(--text-tertiary)]">{t("appTagline")}</p>
         </div>
       </div>
 
