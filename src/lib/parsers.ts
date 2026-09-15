@@ -1,3 +1,6 @@
+import * as XLSX from "xlsx";
+import * as mammoth from "mammoth";
+
 export type ParsedTable = {
   headers: string[];
   rows: string[][];
@@ -12,22 +15,110 @@ export type ColumnMapping = {
   phoneIdx: number;
 };
 
+const ARAB_COUNTRIES = new Set([
+  "مصر", "الاردن", "الأردن", "السعودية", "المملكة العربية السعودية",
+  "الإمارات", "الامارات", "الكويت", "البحرين", "قطر", "عمان", "سلطنة عمان",
+  "اليمن", "العراق", "سوريا", "لبنان", "فلسطين", "السودان", "ليبيا",
+  "تونس", "الجزائر", "المغرب", "موريتانيا", "الصومال", "جيبوتي", "جزر القمر",
+  "egypt", "jordan", "saudi", "ksa", "uae", "iraq", "syria", "lebanon", "palestine"
+]);
+
 export async function parseFile(file: File): Promise<ParsedTable> {
   const name = file.name.toLowerCase();
 
-  if (name.endsWith(".xlsx") || name.endsWith(".xls")) {
+  // Excel / CSV / TSV / OpenDocument
+  if (
+    name.endsWith(".xlsx") ||
+    name.endsWith(".xls") ||
+    name.endsWith(".csv") ||
+    name.endsWith(".tsv") ||
+    name.endsWith(".csx") ||
+    name.endsWith(".ods")
+  ) {
     const arrayBuffer = await file.arrayBuffer();
-    return parseXlsxBuffer(arrayBuffer);
+    return parseSpreadsheetBuffer(arrayBuffer);
   }
 
-  if (name.endsWith(".docx") || name.endsWith(".doc")) {
+  // Word documents (.docx)
+  if (name.endsWith(".docx")) {
     const arrayBuffer = await file.arrayBuffer();
     return parseDocxBuffer(arrayBuffer);
   }
 
-  // Text, CSV, TSV, CSX, etc.
+  // Binary Word documents (.doc) or fallback
+  if (name.endsWith(".doc")) {
+    const arrayBuffer = await file.arrayBuffer();
+    try {
+      return await parseDocxBuffer(arrayBuffer);
+    } catch {
+      const text = await file.text();
+      return parseTextOrCsv(text);
+    }
+  }
+
+  // Plain text, TSV, CSV fallback (.txt, etc.)
   const text = await file.text();
   return parseTextOrCsv(text);
+}
+
+export function parseSpreadsheetBuffer(buffer: ArrayBuffer | ArrayBufferView): ParsedTable {
+  const u8 = ArrayBuffer.isView(buffer)
+    ? new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
+    : new Uint8Array(buffer);
+
+  const wb = XLSX.read(u8, { type: "array", raw: false });
+  const firstSheetName = wb.SheetNames[0];
+  if (!firstSheetName) {
+    throw new Error("لم يتم العثور على أي أوراق عمل داخل ملف الإكسيل.");
+  }
+
+  const ws = wb.Sheets[firstSheetName];
+  const rawRows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+
+  const stringRows: string[][] = rawRows.map((row) =>
+    (Array.isArray(row) ? row : []).map((cell) => (cell === null || cell === undefined ? "" : String(cell).trim()))
+  );
+
+  return analyzeTableRows(stringRows);
+}
+
+export async function parseDocxBuffer(buffer: ArrayBuffer | ArrayBufferView): Promise<ParsedTable> {
+  const u8 = ArrayBuffer.isView(buffer)
+    ? new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
+    : new Uint8Array(buffer);
+
+  // 1. Try extracting HTML tables from Word
+  try {
+    const htmlResult = await mammoth.convertToHtml({ arrayBuffer: u8.buffer as ArrayBuffer });
+    const html = htmlResult.value;
+
+    const tableMatches = html.match(/<table\b[^>]*>[\s\S]*?<\/table>/gi) || [];
+    if (tableMatches.length > 0) {
+      const tableRows: string[][] = [];
+      for (const tbl of tableMatches) {
+        const trMatches = tbl.match(/<tr\b[^>]*>[\s\S]*?<\/tr>/gi) || [];
+        for (const tr of trMatches) {
+          const tdMatches = tr.match(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi) || [];
+          const rowCells = tdMatches.map((td) => {
+            return td.replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " ").trim();
+          });
+          if (rowCells.some((c) => c !== "")) {
+            tableRows.push(rowCells);
+          }
+        }
+      }
+
+      if (tableRows.length > 0) {
+        return analyzeTableRows(tableRows);
+      }
+    }
+  } catch (err) {
+    console.warn("Mammoth HTML conversion fallback:", err);
+  }
+
+  // 2. Fallback to raw text extraction
+  const textResult = await mammoth.extractRawText({ arrayBuffer: u8.buffer as ArrayBuffer });
+  return parseTextOrCsv(textResult.value);
 }
 
 export function parseTextOrCsv(rawText: string): ParsedTable {
@@ -49,7 +140,7 @@ export function parseTextOrCsv(rawText: string): ParsedTable {
     };
   }
 
-  // Check if it has table delimiters
+  // Detect delimiter (tab, comma, semicolon, pipe)
   const sample = rawLines.slice(0, 10).join("\n");
   const commaCount = (sample.match(/,/g) || []).length;
   const semiCount = (sample.match(/;/g) || []).length;
@@ -64,17 +155,10 @@ export function parseTextOrCsv(rawText: string): ParsedTable {
 
   if (delimiter) {
     const allRows = rawLines.map((line) => parseCsvLine(line, delimiter!));
-    if (allRows.length > 0) {
-      const firstRow = allRows[0];
-      const hasHeader = detectHasHeader(firstRow);
-      const headers = hasHeader ? firstRow : firstRow.map((_, i) => `العمود ${i + 1}`);
-      const dataRows = hasHeader ? allRows.slice(1) : allRows;
-      const mapping = guessColumnMapping(headers);
-      return { headers, rows: dataRows, suggestedMapping: mapping };
-    }
+    return analyzeTableRows(allRows);
   }
 
-  // Plain text list without standard table delimiters (e.g. "1- محمد أحمد - مصر")
+  // Plain text lines without standard delimiters (e.g. "1- محمد أحمد - مصر")
   const parsedRows: string[][] = [];
   for (const line of rawLines) {
     const parsed = parseTextListItem(line);
@@ -123,11 +207,9 @@ function parseCsvLine(line: string, delimiter: string): string[] {
 }
 
 function parseTextListItem(line: string): string[] | null {
-  // Strip leading numbering: "1-", "1.", "1)", "(1)"
   let clean = line.replace(/^\(?\s*\d+\s*[\.\-\)\:]\s*/, "").trim();
   if (!clean) return null;
 
-  // Check for email inside the line
   let email = "";
   const emailMatch = clean.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
   if (emailMatch) {
@@ -135,7 +217,6 @@ function parseTextListItem(line: string): string[] | null {
     clean = clean.replace(email, " ").trim();
   }
 
-  // Check for phone number inside the line
   let phone = "";
   const phoneMatch = clean.match(/(\+?\d[\d\s\-]{7,}\d)/);
   if (phoneMatch) {
@@ -143,7 +224,6 @@ function parseTextListItem(line: string): string[] | null {
     clean = clean.replace(phone, " ").trim();
   }
 
-  // Check delimiters like dash, slash, or parentheses
   let parts: string[] = [];
   if (clean.includes(" - ")) {
     parts = clean.split(" - ");
@@ -155,13 +235,10 @@ function parseTextListItem(line: string): string[] | null {
     parts = clean.split(" / ");
   } else if (clean.includes("(") && clean.includes(")")) {
     const m = clean.match(/^(.*?)\s*\((.*?)\)\s*$/);
-    if (m) {
-      parts = [m[1], m[2]];
-    }
+    if (m) parts = [m[1], m[2]];
   }
 
   if (parts.length === 0) {
-    // Single name or no standard separator
     return [clean, "", "", email, phone];
   }
 
@@ -172,272 +249,173 @@ function parseTextListItem(line: string): string[] | null {
   return [name, country, federation, email, phone];
 }
 
-// ---------------- ZIP / XLSX / DOCX PARSER ----------------
+export function analyzeTableRows(rawRows: string[][]): ParsedTable {
+  const cleanRows = rawRows.filter((r) => r.some((c) => c !== ""));
 
-async function parseZipArchive(buffer: ArrayBuffer | ArrayBufferView): Promise<Record<string, string>> {
-  const u8 = ArrayBuffer.isView(buffer)
-    ? new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
-    : new Uint8Array(buffer);
-  const view = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
-
-  let eocdOffset = -1;
-  for (let i = u8.length - 22; i >= 0; i--) {
-    if (view.getUint32(i, true) === 0x06054b50) {
-      eocdOffset = i;
-      break;
-    }
-  }
-  if (eocdOffset === -1) {
-    throw new Error("الملف المضغوط غير صالح أو تالف.");
-  }
-
-  const totalEntries = view.getUint16(eocdOffset + 10, true);
-  const cdOffset = view.getUint32(eocdOffset + 16, true);
-
-  const entries: Record<string, string> = {};
-  let cdPos = cdOffset;
-
-  for (let i = 0; i < totalEntries; i++) {
-    if (cdPos + 46 > u8.length) break;
-    if (view.getUint32(cdPos, true) !== 0x02014b50) break;
-
-    const method = view.getUint16(cdPos + 10, true);
-    const compSize = view.getUint32(cdPos + 20, true);
-    const nameLen = view.getUint16(cdPos + 28, true);
-    const extraLen = view.getUint16(cdPos + 30, true);
-    const commentLen = view.getUint16(cdPos + 32, true);
-    const localHeaderOffset = view.getUint32(cdPos + 42, true);
-
-    const nameBytes = u8.slice(cdPos + 46, cdPos + 46 + nameLen);
-    const fileName = new TextDecoder("utf-8").decode(nameBytes);
-
-    if (localHeaderOffset + 30 <= u8.length) {
-      const localNameLen = view.getUint16(localHeaderOffset + 26, true);
-      const localExtraLen = view.getUint16(localHeaderOffset + 28, true);
-      const dataStart = localHeaderOffset + 30 + localNameLen + localExtraLen;
-      const compData = u8.slice(dataStart, dataStart + compSize);
-
-      try {
-        if (method === 0) {
-          entries[fileName] = new TextDecoder("utf-8").decode(compData);
-        } else if (method === 8) {
-          const ds = new DecompressionStream("deflate-raw");
-          const w = ds.writable.getWriter();
-          w.write(compData);
-          w.close();
-          const r = ds.readable.getReader();
-          const chunks: Uint8Array[] = [];
-          while (true) {
-            const { value, done } = await r.read();
-            if (done) break;
-            chunks.push(value);
-          }
-          const totalLen = chunks.reduce((acc, c) => acc + c.length, 0);
-          const merged = new Uint8Array(totalLen);
-          let o = 0;
-          for (const c of chunks) {
-            merged.set(c, o);
-            o += c.length;
-          }
-          entries[fileName] = new TextDecoder("utf-8").decode(merged);
-        }
-      } catch {
-        // Skip unreadable entry
-      }
-    }
-
-    cdPos += 46 + nameLen + extraLen + commentLen;
-  }
-
-  return entries;
-}
-
-export async function parseXlsxBuffer(buffer: ArrayBuffer | ArrayBufferView): Promise<ParsedTable> {
-  const entries = await parseZipArchive(buffer);
-
-  // 1. Parse shared strings if present
-  const sharedStrings: string[] = [];
-  const sstXml = entries["xl/sharedStrings.xml"] || entries["xl/SharedStrings.xml"];
-  if (sstXml) {
-    const siMatches = sstXml.match(/<si\b[^>]*>[\s\S]*?<\/si>/gi) || [];
-    for (const si of siMatches) {
-      const tMatches = si.match(/<t\b[^>]*>([\s\S]*?)<\/t>/gi) || [];
-      const textVal = tMatches
-        .map((t) => t.replace(/<\/?t\b[^>]*>/gi, ""))
-        .join("");
-      sharedStrings.push(decodeXmlEntities(textVal));
-    }
-  }
-
-  // 2. Find sheet1.xml (or first worksheet)
-  let sheetXml = entries["xl/worksheets/sheet1.xml"] || entries["xl/worksheets/Sheet1.xml"];
-  if (!sheetXml) {
-    for (const key of Object.keys(entries)) {
-      if (key.startsWith("xl/worksheets/") && key.endsWith(".xml")) {
-        sheetXml = entries[key];
-        break;
-      }
-    }
-  }
-
-  if (!sheetXml) {
-    throw new Error("لم يتم العثور على أوراق عمل داخل ملف الإكسيل.");
-  }
-
-  const rowMatches = sheetXml.match(/<row\b[^>]*>[\s\S]*?<\/row>/gi) || [];
-  const parsedRows: string[][] = [];
-
-  for (const rowTag of rowMatches) {
-    const cellMatches = rowTag.match(/<c\b[^>]*>[\s\S]*?<\/c>|<c\b[^>]*\/>/gi) || [];
-    const rowData: string[] = [];
-
-    for (const cellTag of cellMatches) {
-      const typeMatch = cellTag.match(/t="([a-z]+)"/i);
-      const cellType = typeMatch ? typeMatch[1] : "";
-
-      let val = "";
-      const valMatch = cellTag.match(/<v>([\s\S]*?)<\/v>/i);
-      if (valMatch) {
-        val = valMatch[1];
-      } else {
-        const isMatch = cellTag.match(/<is>[\s\S]*?<t>([\s\S]*?)<\/t>[\s\S]*?<\/is>/i);
-        if (isMatch) val = isMatch[1];
-      }
-
-      if (cellType === "s") {
-        const idx = parseInt(val, 10);
-        val = !isNaN(idx) && sharedStrings[idx] ? sharedStrings[idx] : "";
-      }
-
-      rowData.push(decodeXmlEntities(val.trim()));
-    }
-
-    if (rowData.some((c) => c !== "")) {
-      parsedRows.push(rowData);
-    }
-  }
-
-  if (parsedRows.length === 0) {
+  if (cleanRows.length === 0) {
     return {
-      headers: ["الاسم", "الدولة"],
+      headers: ["الاسم", "الدولة", "الاتحاد", "البريد الإلكتروني", "رقم الهاتف"],
       rows: [],
-      suggestedMapping: { nameIdx: 0, countryIdx: 1, federationIdx: -1, emailIdx: -1, phoneIdx: -1 },
+      suggestedMapping: { nameIdx: 0, countryIdx: 1, federationIdx: 2, emailIdx: 3, phoneIdx: 4 },
     };
   }
 
-  const firstRow = parsedRows[0];
-  const hasHeader = detectHasHeader(firstRow);
-  const headers = hasHeader ? firstRow : firstRow.map((_, i) => `العمود ${i + 1}`);
-  const dataRows = hasHeader ? parsedRows.slice(1) : parsedRows;
-  const mapping = guessColumnMapping(headers);
+  // Identify true table header row (skipping titles, course names, etc.)
+  let bestHeaderIdx = -1;
+  let highestScore = 0;
 
-  return { headers, rows: dataRows, suggestedMapping: mapping };
-}
+  const headerKeywords = [
+    "اسم", "name", "مشارك", "طالب", "لاعب", "مدرب",
+    "دولة", "بلد", "جنسية", "country", "nationality",
+    "اتحاد", "federation", "نادي", "club", "جهة", "منظمة", "org",
+    "بريد", "إيميل", "email", "mail",
+    "هاتف", "جوال", "موبايل", "phone", "mobile", "tel",
+    "رقم", "م", "ت", "مسلسل", "#", "no", "id"
+  ];
 
-export async function parseDocxBuffer(buffer: ArrayBuffer | ArrayBufferView): Promise<ParsedTable> {
-  const entries = await parseZipArchive(buffer);
-  const docXml = entries["word/document.xml"];
-  if (!docXml) {
-    throw new Error("لم يتم العثور على محتوى المستند داخل ملف الوورد (DOCX).");
-  }
+  const maxScan = Math.min(15, cleanRows.length);
+  for (let i = 0; i < maxScan; i++) {
+    const row = cleanRows[i];
+    let score = 0;
+    const nonEmptyCells = row.filter(Boolean);
+    if (nonEmptyCells.length < 2) continue;
 
-  // 1. Check if Word document contains tables (<w:tbl>)
-  const tableMatches = docXml.match(/<w:tbl\b[^>]*>[\s\S]*?<\/w:tbl>/gi) || [];
-  if (tableMatches.length > 0) {
-    const tableRows: string[][] = [];
-    for (const tbl of tableMatches) {
-      const trMatches = tbl.match(/<w:tr\b[^>]*>[\s\S]*?<\/w:tr>/gi) || [];
-      for (const tr of trMatches) {
-        const tcMatches = tr.match(/<w:tc\b[^>]*>[\s\S]*?<\/w:tc>/gi) || [];
-        const rowCells: string[] = [];
-        for (const tc of tcMatches) {
-          const tMatches = tc.match(/<w:t\b[^>]*>([\s\S]*?)<\/w:t>/gi) || [];
-          const cellText = tMatches
-            .map((t) => t.replace(/<\/?w:t\b[^>]*>/gi, ""))
-            .join("");
-          rowCells.push(decodeXmlEntities(cellText.trim()));
-        }
-        if (rowCells.some((c) => c !== "")) {
-          tableRows.push(rowCells);
+    for (const cell of row) {
+      const lower = String(cell).toLowerCase().trim();
+      if (!lower) continue;
+
+      if (lower.includes("@") && lower.includes(".")) score -= 15;
+      if (/^\+?\d{8,15}$/.test(lower.replace(/[\s\-]/g, ""))) score -= 15;
+
+      for (const kw of headerKeywords) {
+        if (lower === kw || lower.startsWith(kw + " ") || lower.endsWith(" " + kw) || lower.includes(kw)) {
+          score += 10;
+          break;
         }
       }
     }
 
-    if (tableRows.length > 0) {
-      const firstRow = tableRows[0];
-      const hasHeader = detectHasHeader(firstRow);
-      const headers = hasHeader ? firstRow : firstRow.map((_, i) => `العمود ${i + 1}`);
-      const dataRows = hasHeader ? tableRows.slice(1) : tableRows;
-      const mapping = guessColumnMapping(headers);
-      return { headers, rows: dataRows, suggestedMapping: mapping };
+    if (score > highestScore) {
+      highestScore = score;
+      bestHeaderIdx = i;
     }
   }
 
-  // 2. If no tables, extract paragraphs (<w:p>)
-  const pMatches = docXml.match(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/gi) || [];
-  const lines: string[] = [];
-  for (const p of pMatches) {
-    const tMatches = p.match(/<w:t\b[^>]*>([\s\S]*?)<\/w:t>/gi) || [];
-    const pText = tMatches
-      .map((t) => t.replace(/<\/?w:t\b[^>]*>/gi, ""))
-      .join("");
-    const trimmed = decodeXmlEntities(pText.trim());
-    if (trimmed) lines.push(trimmed);
+  let headers: string[] = [];
+  let dataRows: string[][] = [];
+
+  if (bestHeaderIdx !== -1 && highestScore >= 10) {
+    headers = cleanRows[bestHeaderIdx].map((c) => String(c).trim());
+    dataRows = cleanRows.slice(bestHeaderIdx + 1).map((r) => r.map((c) => String(c).trim()));
+  } else {
+    dataRows = cleanRows.map((r) => r.map((c) => String(c).trim()));
+    headers = Array.from({ length: dataRows[0]?.length || 0 }, (_, i) => `العمود ${i + 1}`);
   }
 
-  return parseTextOrCsv(lines.join("\n"));
+  // Filter out empty rows or repeated headers
+  dataRows = dataRows.filter((r) => {
+    const joined = r.join(" ").trim();
+    if (!joined) return false;
+    if (r.some((c) => c === "الاسم" || c === "اسم المشارك")) return false;
+    if (joined.startsWith("المجموع") || joined.startsWith("الإجمالي") || joined.startsWith("Total")) return false;
+    return true;
+  });
+
+  const mapping = guessColumnMapping(headers, dataRows);
+
+  return {
+    headers,
+    rows: dataRows,
+    suggestedMapping: mapping,
+  };
 }
 
-function decodeXmlEntities(str: string): string {
-  return str
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'");
-}
-
-function detectHasHeader(row: string[]): boolean {
-  const headerKeywords = [
-    "اسم", "name", "دولة", "بلد", "جنسية", "country", "اتحاد",
-    "federation", "بريد", "email", "هاتف", "phone", "م", "ت", "#", "no"
-  ];
-  let matches = 0;
-  for (const cell of row) {
-    const lower = cell.toLowerCase().trim();
-    if (headerKeywords.some((k) => lower.includes(k))) {
-      matches++;
-    }
-  }
-  return matches >= 1;
-}
-
-export function guessColumnMapping(headers: string[]): ColumnMapping {
+export function guessColumnMapping(headers: string[], dataRows: string[][] = []): ColumnMapping {
   let nameIdx = -1;
   let countryIdx = -1;
   let federationIdx = -1;
   let emailIdx = -1;
   let phoneIdx = -1;
 
+  // Phase 1: Header name matching
   headers.forEach((h, i) => {
     const clean = h.toLowerCase().trim();
-    if (nameIdx === -1 && (clean.includes("اسم") || clean.includes("name") || clean.includes("مشارك"))) {
+    if (!clean) return;
+
+    if (nameIdx === -1 && (clean.includes("اسم") || clean.includes("name") || clean.includes("مشارك") || clean.includes("طالب") || clean.includes("لاعب") || clean.includes("مدرب"))) {
       nameIdx = i;
     } else if (countryIdx === -1 && (clean.includes("دولة") || clean.includes("بلد") || clean.includes("جنسية") || clean.includes("country") || clean.includes("nationality"))) {
       countryIdx = i;
-    } else if (federationIdx === -1 && (clean.includes("اتحاد") || clean.includes("نادي") || clean.includes("جهة") || clean.includes("federation") || clean.includes("club") || clean.includes("org"))) {
+    } else if (federationIdx === -1 && (clean.includes("اتحاد") || clean.includes("جهة") || clean.includes("نادي") || clean.includes("هيئة") || clean.includes("federation") || clean.includes("club") || clean.includes("org"))) {
       federationIdx = i;
-    } else if (emailIdx === -1 && (clean.includes("بريد") || clean.includes("إيميل") || clean.includes("email") || clean.includes("mail"))) {
+    } else if (emailIdx === -1 && (clean.includes("بريد") || clean.includes("إيميل") || clean.includes("ايميل") || clean.includes("email") || clean.includes("mail"))) {
       emailIdx = i;
-    } else if (phoneIdx === -1 && (clean.includes("هاتف") || clean.includes("جوال") || clean.includes("محمول") || clean.includes("phone") || clean.includes("mobile") || clean.includes("tel"))) {
+    } else if (phoneIdx === -1 && (clean.includes("هاتف") || clean.includes("جوال") || clean.includes("موبايل") || clean.includes("phone") || clean.includes("mobile") || clean.includes("tel"))) {
       phoneIdx = i;
     }
   });
 
-  // Fallbacks if not detected by keywords
+  // Phase 2: Content-based deduction from data rows
+  const sampleRows = dataRows.slice(0, 30);
+  const numCols = Math.max(headers.length, ...sampleRows.map((r) => r.length), 0);
+
+  for (let col = 0; col < numCols; col++) {
+    const colValues = sampleRows.map((r) => (r[col] ?? "").trim()).filter(Boolean);
+    if (colValues.length === 0) continue;
+
+    if (emailIdx === -1) {
+      const emailCount = colValues.filter((v) => v.includes("@") && v.includes(".")).length;
+      if (emailCount >= Math.max(1, colValues.length * 0.3)) {
+        emailIdx = col;
+        continue;
+      }
+    }
+
+    if (phoneIdx === -1) {
+      const phoneCount = colValues.filter((v) => /^(\+?\d[\d\s\-]{6,}\d)$/.test(v)).length;
+      if (phoneCount >= Math.max(1, colValues.length * 0.3)) {
+        phoneIdx = col;
+        continue;
+      }
+    }
+
+    if (countryIdx === -1) {
+      const countryCount = colValues.filter((v) => {
+        const norm = v.replace(/[أإآ]/g, "ا").toLowerCase();
+        return ARAB_COUNTRIES.has(v) || ARAB_COUNTRIES.has(norm);
+      }).length;
+      if (countryCount >= Math.max(1, colValues.length * 0.25)) {
+        countryIdx = col;
+        continue;
+      }
+    }
+
+    const isSeqCol = colValues.every((v) => /^\d{1,4}$/.test(v));
+    if (isSeqCol) continue;
+
+    if (nameIdx === -1) {
+      const isLikelyName = colValues.every((v) => !v.includes("@") && !/^\+?\d+$/.test(v) && v.split(/\s+/).length >= 2);
+      if (isLikelyName) {
+        nameIdx = col;
+        continue;
+      }
+    }
+  }
+
+  // Fallback: If nameIdx is still -1 or points to numbers
+  if (nameIdx === -1 || sampleRows.every((r) => /^\d+$/.test((r[nameIdx] ?? "").trim()))) {
+    for (let c = 0; c < numCols; c++) {
+      if (c === countryIdx || c === federationIdx || c === emailIdx || c === phoneIdx) continue;
+      const colValues = sampleRows.map((r) => (r[c] ?? "").trim()).filter(Boolean);
+      const isNumbers = colValues.every((v) => /^\d+$/.test(v));
+      if (!isNumbers && colValues.length > 0) {
+        nameIdx = c;
+        break;
+      }
+    }
+  }
+
   if (nameIdx === -1 && headers.length > 0) nameIdx = 0;
-  if (countryIdx === -1 && headers.length > 1) countryIdx = 1;
-  if (federationIdx === -1 && headers.length > 2) federationIdx = 2;
 
   return { nameIdx, countryIdx, federationIdx, emailIdx, phoneIdx };
 }

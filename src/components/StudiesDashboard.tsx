@@ -14,12 +14,15 @@ import {
   IconSearch,
   IconEdit,
   IconTrash,
+  IconDownload,
   StatusBadge,
   Spinner,
 } from "./ui";
 import type { StudyWithCount, Stats } from "@/lib/types";
+import { downloadStudyReport } from "@/lib/exporter";
 import {
   getLocalDashboardData,
+  getLocalStudyDetail,
   saveLocalStudy,
   deleteLocalStudy,
   subscribeStorage,
@@ -124,6 +127,11 @@ export function StudiesDashboard({
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleExport = (s: StudyWithCount) => {
+    const detail = getLocalStudyDetail(s.id);
+    downloadStudyReport(s, detail.participants);
   };
 
   const statCards = [
@@ -279,6 +287,7 @@ export function StudiesDashboard({
               key={s.id}
               study={s}
               index={i}
+              onExport={() => handleExport(s)}
               onEdit={() => openEdit(s)}
               onDelete={() => setDeleting(s)}
               t={t}
@@ -339,12 +348,14 @@ export function StudiesDashboard({
 function StudyCard({
   study,
   index,
+  onExport,
   onEdit,
   onDelete,
   t,
 }: {
   study: StudyWithCount;
   index: number;
+  onExport: () => void;
   onEdit: () => void;
   onDelete: () => void;
   t: (k: string) => string;
@@ -380,6 +391,17 @@ function StudyCard({
           <span>{t("participants")}</span>
         </span>
         <div className="flex gap-1" onClick={(e) => e.preventDefault()}>
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              onExport();
+            }}
+            className="flex h-8 w-8 items-center justify-center rounded-full text-emerald-600 transition hover:bg-emerald-50 hover:text-emerald-700"
+            title="تصدير كـ HTML"
+            aria-label="تصدير كـ HTML"
+          >
+            <IconDownload size={15} />
+          </button>
           <button
             onClick={(e) => {
               e.preventDefault();

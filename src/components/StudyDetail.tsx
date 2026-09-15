@@ -269,7 +269,7 @@ export function StudyDetail({
     }
     const success = downloadLecturerReport(study, participants);
     if (success) {
-      showToast(`تم تصدير كشف المحاضرين بنجاح (${participants.length} مشارك)`);
+      showToast(`تم تصدير ملف الـ HTML بنجاح (${participants.length} مشارك)`);
     } else {
       showToast("تعذر تصدير الملف، يرجى المحاولة لاحقاً");
     }
@@ -457,10 +457,10 @@ export function StudyDetail({
           <button
             className="btn-ghost flex items-center gap-1.5 !px-3.5 !py-2 text-xs font-bold text-emerald-800 border-emerald-300/80 bg-emerald-50/50 hover:bg-emerald-50"
             onClick={handleDirectExport}
-            title="تصدير وتحميل كشف المحاضرين المعتمد فوراً (ملف HTML مدمج الـ CSS خالٍ من البريد والهاتف)"
+            title="تصدير وتحميل جدول المشاركين كملف HTML مستقل ومباشر"
           >
             <IconDownload size={14} />
-            <span>{t("exportLecturersReport")}</span>
+            <span>{t("exportStudyHtml")}</span>
           </button>
 
           <button
