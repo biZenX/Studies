@@ -46,6 +46,10 @@ export async function PUT(
   if (body.description !== undefined)
     values.description = String(body.description).trim() || null;
   if (body.status !== undefined) values.status = String(body.status);
+  if (body.titleEn !== undefined)
+    values.titleEn = String(body.titleEn ?? "").trim() || null;
+  if (body.descriptionEn !== undefined)
+    values.descriptionEn = String(body.descriptionEn ?? "").trim() || null;
 
   if (values.title === "") {
     return NextResponse.json({ error: "Title is required" }, { status: 400 });

@@ -157,23 +157,43 @@ export function Modal({
   title,
   children,
   wide,
+  testId,
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
   children: ReactNode;
   wide?: boolean;
+  testId?: string;
 }) {
   useEffect(() => {
     if (!open) return;
+
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     document.addEventListener("keydown", onKey);
-    document.body.style.overflow = "hidden";
+
+    // Lock background scrolling without losing the scrollbar width (prevents the
+    // page from jumping and from becoming unscrollable after the modal closes).
+    const html = document.documentElement;
+    const body = document.body;
+    const prev = {
+      htmlOverflow: html.style.overflow,
+      bodyOverflow: body.style.overflow,
+      paddingInlineEnd: body.style.paddingInlineEnd,
+    };
+    const scrollbar = window.innerWidth - html.clientWidth;
+
+    html.style.overflow = "hidden";
+    body.style.overflow = "hidden";
+    if (scrollbar > 0) body.style.paddingInlineEnd = `${scrollbar}px`;
+
     return () => {
       document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = "";
+      html.style.overflow = prev.htmlOverflow;
+      body.style.overflow = prev.bodyOverflow;
+      body.style.paddingInlineEnd = prev.paddingInlineEnd;
     };
   }, [open, onClose]);
 
@@ -181,26 +201,39 @@ export function Modal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 backdrop-blur-sm sm:items-center sm:p-4"
+      className="fixed inset-0 z-[60] flex items-end justify-center bg-slate-900/50 p-0 sm:items-center sm:p-4"
       onClick={onClose}
+      role="presentation"
     >
       <div
-        className={`animate-scale-in card max-h-[92vh] w-full overflow-hidden bg-white rounded-t-3xl sm:rounded-3xl ${
-          wide ? "sm:max-w-3xl" : "sm:max-w-lg"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        data-testid={testId ?? "modal"}
+        className={`animate-scale-in card flex max-h-[94dvh] w-full flex-col overflow-hidden rounded-t-3xl bg-white sm:max-h-[90dvh] sm:rounded-3xl ${
+          wide ? "sm:max-w-4xl" : "sm:max-w-lg"
         }`}
+        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-[var(--border)] px-6 py-4">
-          <h3 className="text-base font-bold text-[var(--text)]">{title}</h3>
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3.5 sm:px-6 sm:py-4">
+          <h3 className="min-w-0 flex-1 truncate text-sm font-extrabold text-[var(--text)] sm:text-base">
+            {title}
+          </h3>
           <button
             onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--text-tertiary)] transition hover:bg-[var(--bg)] hover:text-[var(--text)]"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--text-tertiary)] transition hover:bg-[var(--bg)] hover:text-[var(--text)]"
             aria-label="Close"
           >
             <IconX size={18} />
           </button>
         </div>
-        <div className="max-h-[calc(92vh-70px)] overflow-y-auto px-5 py-5 sm:px-6">{children}</div>
+        <div
+          className="modal-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6 sm:py-5"
+          style={{ WebkitOverflowScrolling: "touch" }}
+        >
+          {children}
+        </div>
       </div>
     </div>
   );
@@ -215,7 +248,7 @@ export function Spinner({ size = 18 }: { size?: number }) {
   );
 }
 
-export function CountryBadge({ country }: { country: string }) {
+export function CountryBadge({ country, label }: { country: string; label?: string }) {
   const palette: Record<string, string> = {
     "تونس": "#dcfce7",
     "مصر": "#fef3c7",
@@ -228,13 +261,21 @@ export function CountryBadge({ country }: { country: string }) {
     "الجزائر": "#e9d5ff",
     "السودان": "#fde68a",
   };
-  const bg = palette[country] ?? "#f1f5f9";
+
+  // Stable colour for any country not in the curated palette.
+  const fallbackTints = ["#e0f2fe", "#fce7f3", "#ecfccb", "#fef9c3", "#ede9fe", "#ffedd5"];
+  let hash = 0;
+  for (let i = 0; i < country.length; i++) hash = (hash * 31 + country.charCodeAt(i)) >>> 0;
+
+  const bg = palette[country] ?? fallbackTints[hash % fallbackTints.length];
+
   return (
     <span
-      className="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold"
-      style={{ background: bg, color: "rgba(15,23,42,0.75)" }}
+      className="inline-flex max-w-full items-center rounded-full px-2.5 py-1 text-[11px] font-bold sm:px-3 sm:text-xs"
+      style={{ background: bg, color: "rgba(15,23,42,0.78)" }}
+      title={label ?? country}
     >
-      {country}
+      <span className="truncate">{label ?? country}</span>
     </span>
   );
 }

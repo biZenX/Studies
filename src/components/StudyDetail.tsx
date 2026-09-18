@@ -1,12 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useState, useRef } from "react";
+import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useLang } from "./lang";
-import { StudyModal, type StudyFormData } from "./StudyModal";
+import { useToast } from "./toast";
+import { useMediaQuery, useMounted } from "./useMediaQuery";
 import { ParticipantModal, type ParticipantFormData } from "./ParticipantModal";
 import { EmailModal } from "./EmailModal";
+import { ExportModal } from "./ExportModal";
+import { ImportModal } from "./ImportModal";
 import {
   Modal,
   CountryBadge,
@@ -23,20 +26,22 @@ import {
   IconSearch,
   IconUpload,
   IconDownload,
-  IconCheckCircle,
+  IconFilter,
 } from "./ui";
-import { downloadLecturerReport } from "@/lib/exporter";
-import { parseFile } from "@/lib/parsers";
+import { formatDate, localizeStudy, normalizeAr, translateCountry } from "@/lib/content";
 import type { StudyWithCount, Participant } from "@/lib/types";
 import {
-  getLocalStudyDetail,
-  saveLocalStudy,
+  getStudySnapshot,
   deleteLocalStudy,
   saveLocalParticipant,
   deleteLocalParticipant,
-  bulkAddLocalParticipants,
+  restoreLocalParticipant,
   subscribeStorage,
 } from "@/lib/storage";
+
+const NO_PARTICIPANTS: Participant[] = [];
+
+type SortKey = "original" | "name" | "country" | "newest";
 
 export function StudyDetail({
   studyId: propStudyId,
@@ -49,57 +54,77 @@ export function StudyDetail({
   participants?: Participant[] | null;
   brevoConfigured?: boolean;
 }) {
-  const { t } = useLang();
+  const { t, lang } = useLang();
   const router = useRouter();
+  const toast = useToast();
+  const mounted = useMounted();
+  const isSmallScreen = useMediaQuery("(max-width: 639px)");
 
   const activeId = propStudyId || initialStudy?.id || 1;
 
-  // Local-first state initialization
-  const [study, setStudy] = useState<StudyWithCount | null>(() => {
-    if (typeof window !== "undefined") {
-      const local = getLocalStudyDetail(activeId);
-      if (local.study) return local.study;
-    }
-    return initialStudy || null;
-  });
+  // Server payload bootstraps the first paint; the local-first store takes over
+  // as soon as the component hydrates (useSyncExternalStore handles the swap
+  // without a hydration mismatch).
+  const serverSnapshot = useMemo(
+    () => ({
+      study: initialStudy ?? null,
+      participants: initialParticipants ?? NO_PARTICIPANTS,
+    }),
+    [initialStudy, initialParticipants],
+  );
 
-  const [participants, setParticipants] = useState<Participant[]>(() => {
-    if (typeof window !== "undefined") {
-      const local = getLocalStudyDetail(activeId);
-      if (local.study) return local.participants;
-    }
-    return initialParticipants || [];
-  });
+  const getClientSnapshot = useCallback(() => {
+    const local = getStudySnapshot(activeId);
+    if (local.study) return local;
+    return serverSnapshot.study ? serverSnapshot : local;
+  }, [activeId, serverSnapshot]);
+
+  const snapshot = useSyncExternalStore(
+    subscribeStorage,
+    getClientSnapshot,
+    () => serverSnapshot,
+  );
+
+  const study = snapshot.study;
+
+  /**
+   * Rows hidden by a delete that the backing store could not confirm (e.g. a
+   * roster that only ever came from the server). This is what guarantees the
+   * row disappears the instant the dialog is confirmed.
+   */
+  const [hiddenIds, setHiddenIds] = useState<ReadonlySet<number>>(() => new Set());
+
+  const participants = useMemo(
+    () =>
+      hiddenIds.size === 0
+        ? snapshot.participants
+        : snapshot.participants.filter((p) => !hiddenIds.has(p.id)),
+    [snapshot.participants, hiddenIds],
+  );
 
   const [search, setSearch] = useState("");
-  const [viewMode, setViewMode] = useState<"table" | "cards">("table");
+  const [countryFilter, setCountryFilter] = useState("all");
+  const [federationFilter, setFederationFilter] = useState("all");
+  const [sortKey, setSortKey] = useState<SortKey>("original");
+  const [viewOverride, setViewOverride] = useState<"table" | "cards" | null>(null);
 
   // Modals
-  const [studyModal, setStudyModal] = useState(false);
   const [participantModal, setParticipantModal] = useState(false);
   const [emailModal, setEmailModal] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [exportModal, setExportModal] = useState(false);
+  const [importModal, setImportModal] = useState(false);
+  const [deleteStudyOpen, setDeleteStudyOpen] = useState(false);
 
   const [editingParticipant, setEditingParticipant] = useState<Participant | null>(null);
   const [deletingParticipant, setDeletingParticipant] = useState<Participant | null>(null);
-  const [deleteStudyOpen, setDeleteStudyOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [toastMessage, setToastMessage] = useState<string>("");
 
-  const reloadData = () => {
-    const local = getLocalStudyDetail(activeId);
-    if (local.study) {
-      setStudy(local.study);
-      setParticipants(local.participants);
-    }
-  };
+  /* ----------------------------- derived data ----------------------------- */
 
-  useEffect(() => {
-    reloadData();
-    return subscribeStorage(() => {
-      reloadData();
-    });
-  }, [activeId]);
+  const displayStudy = useMemo(
+    () => (study ? localizeStudy(study, lang) : null),
+    [study, lang],
+  );
 
   const stats = useMemo(() => {
     const countries = new Set<string>();
@@ -115,28 +140,100 @@ export function StudyDetail({
     };
   }, [participants]);
 
+  /** Country → count, used for the breakdown chips and the filter dropdown. */
+  const countryCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const p of participants) {
+      const key = (p.country ?? "").trim();
+      if (!key) continue;
+      map.set(key, (map.get(key) ?? 0) + 1);
+    }
+    return [...map.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "ar"));
+  }, [participants]);
+
+  const federationCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const p of participants) {
+      const key = (p.federation ?? "").trim();
+      if (!key) continue;
+      map.set(key, (map.get(key) ?? 0) + 1);
+    }
+    return [...map.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "ar"));
+  }, [participants]);
+
+  /**
+   * Search matches the raw value *and* its translation, so filtering works in
+   * both languages ("الأردن" and "Jordan" hit the same rows).
+   */
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return participants;
-    return participants.filter(
-      (p) =>
-        p.name.toLowerCase().includes(q) ||
-        (p.country ?? "").toLowerCase().includes(q) ||
-        (p.federation ?? "").toLowerCase().includes(q) ||
-        (p.email ?? "").toLowerCase().includes(q) ||
-        (p.phone ?? "").toLowerCase().includes(q)
-    );
-  }, [participants, search]);
+    const q = normalizeAr(search.trim());
+
+    let list = participants;
+
+    if (countryFilter !== "all") {
+      list = list.filter((p) => (p.country ?? "").trim() === countryFilter);
+    }
+    if (federationFilter !== "all") {
+      list = list.filter((p) => (p.federation ?? "").trim() === federationFilter);
+    }
+
+    if (q) {
+      list = list.filter((p) => {
+        const haystack = [
+          p.name,
+          p.country ?? "",
+          translateCountry(p.country, "en"),
+          p.federation ?? "",
+          translateCountry(p.federation, "en"),
+          p.email ?? "",
+          p.phone ?? "",
+          p.code ?? "",
+        ]
+          .map((v) => normalizeAr(String(v ?? "")))
+          .join(" \u0001 ");
+        return haystack.includes(q);
+      });
+    }
+
+    const sorted = [...list];
+    switch (sortKey) {
+      case "name":
+        sorted.sort((a, b) => a.name.localeCompare(b.name, lang === "en" ? "en" : "ar"));
+        break;
+      case "country":
+        sorted.sort(
+          (a, b) =>
+            (a.country ?? "").localeCompare(b.country ?? "", "ar") ||
+            a.name.localeCompare(b.name, "ar"),
+        );
+        break;
+      case "newest":
+        sorted.sort(
+          (a, b) =>
+            new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime(),
+        );
+        break;
+      default:
+        break;
+    }
+    return sorted;
+  }, [participants, search, countryFilter, federationFilter, sortKey, lang]);
 
   const validEmails = useMemo(
     () => participants.filter((p) => p.email && p.email.includes("@")).length,
-    [participants]
+    [participants],
   );
 
-  const showToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(""), 4000);
+  const activeFilters =
+    (search ? 1 : 0) + (countryFilter !== "all" ? 1 : 0) + (federationFilter !== "all" ? 1 : 0);
+
+  const clearFilters = () => {
+    setSearch("");
+    setCountryFilter("all");
+    setFederationFilter("all");
   };
+
+  /* -------------------------------- actions ------------------------------- */
 
   const openAdd = () => {
     setEditingParticipant(null);
@@ -148,26 +245,7 @@ export function StudyDetail({
     setParticipantModal(true);
   };
 
-  const handleStudySubmit = async (data: StudyFormData) => {
-    if (!study) return;
-    setSaving(true);
-    try {
-      const updated = saveLocalStudy({
-        id: study.id,
-        title: data.title,
-        year: data.year,
-        description: data.description,
-        status: data.status,
-      });
-      setStudy({ ...updated, participantCount: participants.length });
-      setStudyModal(false);
-      showToast("تم تحديث بيانات الدراسة بنجاح");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleParticipantSubmit = async (data: ParticipantFormData) => {
+  const handleParticipantSubmit = (data: ParticipantFormData) => {
     if (!study) return;
     setSaving(true);
     try {
@@ -178,26 +256,58 @@ export function StudyDetail({
         country: data.country,
         email: data.email,
         phone: data.phone,
+        code: data.code,
       });
       setParticipantModal(false);
-      reloadData();
-      showToast(editingParticipant ? "تم تحديث بيانات المشارك" : "تمت إضافة المشارك بنجاح");
+      toast.success(
+        editingParticipant ? t("participantUpdated") : t("participantAdded"),
+      );
     } finally {
       setSaving(false);
     }
   };
 
-  const handleDeleteParticipant = async () => {
-    if (!deletingParticipant) return;
-    setSaving(true);
+  /**
+   * Delete is optimistic: the row leaves the roster the instant the dialog is
+   * confirmed, persistence happens right after, and an undo is offered.
+   */
+  const handleDeleteParticipant = () => {
+    const target = deletingParticipant;
+    if (!target) return;
+
+    setDeletingParticipant(null);
+
+    // 1. Hide the row immediately — the roster must react before any I/O.
+    setHiddenIds((prev) => {
+      const next = new Set(prev);
+      next.add(target.id);
+      return next;
+    });
+
+    // 2. Persist (synchronous, notifies the store → snapshot without the row).
     try {
-      deleteLocalParticipant(deletingParticipant.id);
-      setDeletingParticipant(null);
-      reloadData();
-      showToast("تم حذف المشارك");
-    } finally {
-      setSaving(false);
+      deleteLocalParticipant(target.id);
+    } catch (err) {
+      console.error("Delete failed:", err);
+      toast.error(t("exportFailed"));
     }
+
+    toast.success(`${t("participantRemoved")}: ${target.name}`, {
+      label: t("undo"),
+      onClick: () => {
+        setHiddenIds((prev) => {
+          if (!prev.has(target.id)) return prev;
+          const next = new Set(prev);
+          next.delete(target.id);
+          return next;
+        });
+        try {
+          restoreLocalParticipant(target);
+        } catch (err) {
+          console.error("Undo failed:", err);
+        }
+      },
+    });
   };
 
   const handleDeleteStudy = async () => {
@@ -211,74 +321,38 @@ export function StudyDetail({
     }
   };
 
-  const handleDirectImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !study) return;
-
-    showToast(`جارٍ استيراد المشاركين من "${file.name}"...`);
-    try {
-      const data = await parseFile(file);
-      if (!data || !data.rows || data.rows.length === 0) {
-        showToast("لم يتم العثور على بيانات صالحة داخل الملف");
-        return;
-      }
-
-      const { nameIdx, countryIdx, federationIdx, emailIdx, phoneIdx } = data.suggestedMapping;
-      const toImport: Array<{
-        name: string;
-        country: string | null;
-        federation: string | null;
-        email: string | null;
-        phone: string | null;
-      }> = [];
-
-      for (const row of data.rows) {
-        const name = (row[nameIdx >= 0 ? nameIdx : 0] ?? "").trim();
-        if (!name) continue;
-
-        const country = countryIdx >= 0 && row[countryIdx] ? row[countryIdx].trim() : null;
-        const federation = federationIdx >= 0 && row[federationIdx] ? row[federationIdx].trim() : country;
-        const email = emailIdx >= 0 && row[emailIdx] ? row[emailIdx].trim() : null;
-        const phone = phoneIdx >= 0 && row[phoneIdx] ? row[phoneIdx].trim() : null;
-
-        toImport.push({ name, country, federation, email, phone });
-      }
-
-      if (toImport.length === 0) {
-        showToast("لم يتم العثور على أسماء مشاركين صالحة داخل الملف");
-        return;
-      }
-
-      bulkAddLocalParticipants(study.id, toImport);
-      reloadData();
-      showToast(`تم استيراد ${toImport.length} مشارك بنجاح`);
-    } catch (err) {
-      console.error("Direct import error:", err);
-      showToast(err instanceof Error ? err.message : "حدث خطأ أثناء قراءة الملف");
-    } finally {
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
-    }
+  const handleImported = (count: number) => {
+    toast.success(
+      lang === "en" ? `${count} participants imported` : `تم استيراد ${count} مشارك بنجاح`,
+    );
   };
 
-  const handleDirectExport = () => {
-    if (!study) {
-      showToast("يرجى الانتظار حتى اكتمال تحميل بيانات الدراسة");
-      return;
-    }
-    const success = downloadLecturerReport(study, participants);
-    if (success) {
-      showToast(`تم تصدير ملف الـ HTML بنجاح (${participants.length} مشارك)`);
-    } else {
-      showToast("تعذر تصدير الملف، يرجى المحاولة لاحقاً");
-    }
-  };
+  /* --------------------------------- render -------------------------------- */
 
-  if (!study) {
+  // Before hydration we cannot read the local-first store. When the server
+  // already sent the study we render it; otherwise show a skeleton instead of
+  // flashing "study not found" on every cold load.
+  if (!mounted && !study) {
     return (
-      <div className="card flex flex-col items-center justify-center py-20 px-6 text-center">
-        <p className="text-lg font-bold text-[var(--text)]">لم يتم العثور على الدراسة المطلوبة</p>
+      <div className="animate-fade-up" aria-busy="true" data-testid="study-loading">
+        <div className="card mb-5 p-6">
+          <div className="mx-auto h-4 w-28 rounded-full bg-[var(--bg)]" />
+          <div className="mx-auto mt-4 h-7 w-3/4 max-w-xl rounded-full bg-[var(--bg)]" />
+          <div className="mx-auto mt-3 h-3 w-1/2 max-w-sm rounded-full bg-[var(--bg)]" />
+        </div>
+        <div className="card p-4">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="mb-3 h-9 rounded-xl bg-[var(--bg)]" />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (!study || !displayStudy) {
+    return (
+      <div className="card flex flex-col items-center justify-center px-6 py-20 text-center">
+        <p className="text-lg font-bold text-[var(--text)]">{t("studyNotFound")}</p>
         <Link href="/" className="btn-primary mt-4 flex items-center gap-2 text-sm font-bold">
           <IconBack size={16} />
           <span>{t("backToStudies")}</span>
@@ -299,8 +373,8 @@ export function StudyDetail({
       label: t("countries"),
       value: stats.countries,
       icon: <IconGlobe size={18} />,
-      tint: "#fdf4ff",
-      color: "#a21caf",
+      tint: "#eff6ff",
+      color: "#0b2545",
     },
     {
       label: t("withEmail"),
@@ -311,54 +385,68 @@ export function StudyDetail({
     },
   ];
 
-  return (
-    <div className="animate-fade-up pb-10">
-      {/* Toast Feedback */}
-      {toastMessage && (
-        <div className="fixed bottom-5 start-5 z-50 flex items-center gap-2.5 rounded-2xl bg-slate-900 px-4 py-3 text-xs font-bold text-white shadow-xl">
-          <IconCheckCircle size={16} className="text-emerald-400" />
-          <span>{toastMessage}</span>
-        </div>
-      )}
+  // Only one roster view is mounted at a time: hidden duplicates used to leak
+  // filtered-out rows into the page content.
+  const showCards = mounted
+    ? viewOverride
+      ? viewOverride === "cards"
+      : isSmallScreen
+    : false;
 
+  return (
+    <div className="animate-fade-up pb-12">
       <Link
         href="/"
-        className="mb-5 inline-flex items-center gap-2 text-xs sm:text-sm font-bold text-[var(--text-secondary)] transition hover:text-[var(--text)]"
+        className="mb-4 inline-flex items-center gap-2 text-xs font-bold text-[var(--text-secondary)] transition hover:text-[var(--text)] sm:text-sm"
       >
         <IconBack size={16} />
         <span>{t("backToStudies")}</span>
       </Link>
 
-      {/* Main Study Card */}
-      <div className="card mb-6 p-5 sm:p-7">
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-          <div className="min-w-0 flex-1 max-w-4xl">
-            <div className="mb-2.5 flex flex-wrap items-center gap-2">
-              <span className="num inline-flex items-center rounded-full bg-[var(--bg)] px-3 py-1 text-xs font-bold text-[var(--text-secondary)]">
-                {study.year}
+      {/* ---------------- Study header (centred navy title) ---------------- */}
+      <div className="card mb-5 p-5 sm:p-7">
+        <div className="flex flex-col items-center text-center">
+          <div className="mb-3 flex flex-wrap items-center justify-center gap-2">
+            {study.year && (
+              <span className="num inline-flex items-center rounded-full bg-[#eef2f7] px-3 py-1 text-xs font-bold text-[var(--navy)]">
+                {t("date")}: {formatDate(study.year, lang)}
               </span>
-              <StatusBadge status={study.status} label={t(study.status)} />
-            </div>
-            <h1 className="text-xl font-bold leading-snug sm:text-2xl lg:text-3xl text-[var(--text)]">
-              {study.title}
-            </h1>
-            {study.description && (
-              <p className="mt-2 text-xs sm:text-sm leading-relaxed text-[var(--text-secondary)]">
-                {study.description}
-              </p>
             )}
+            <StatusBadge status={study.status} label={t(study.status)} />
+            <span className="num inline-flex items-center rounded-full bg-[var(--accent-tint)] px-3 py-1 text-xs font-bold text-[var(--accent-strong)]">
+              {participants.length} {t("participants")}
+            </span>
           </div>
 
-          {/* Action buttons */}
-          <div className="flex flex-wrap items-center gap-2 pt-1">
-            <button
+          <h1
+            className="doc-title w-full max-w-4xl text-2xl sm:text-3xl lg:text-[2.6rem]"
+            data-testid="study-title"
+          >
+            {displayStudy.title}
+          </h1>
+          <div className="doc-title-rule" />
+
+          {displayStudy.description && (
+            <p
+              className="mt-3 max-w-3xl text-xs leading-relaxed text-[var(--text-secondary)] sm:text-sm"
+              data-testid="study-description"
+            >
+              {displayStudy.description}
+            </p>
+          )}
+
+          {/* Actions */}
+          <div className="mt-5 flex w-full flex-wrap items-center justify-center gap-2">
+            <Link
+              href={`/studies/${study.id}/edit`}
               className="btn-ghost flex items-center gap-1.5 !px-3.5 !py-2 text-xs font-bold"
-              onClick={() => setStudyModal(true)}
+              data-testid="edit-study-link"
             >
               <IconEdit size={14} />
               <span>{t("editStudy")}</span>
-            </button>
+            </Link>
             <button
+              type="button"
               className="btn-ghost flex items-center gap-1.5 !px-3.5 !py-2 text-xs font-bold !text-red-600 hover:!border-red-200 hover:!bg-red-50"
               onClick={() => setDeleteStudyOpen(true)}
             >
@@ -366,6 +454,17 @@ export function StudyDetail({
               <span>{t("deleteStudy")}</span>
             </button>
             <button
+              type="button"
+              className="btn-ghost flex items-center gap-1.5 !px-3.5 !py-2 text-xs font-bold text-emerald-800 !border-emerald-300 bg-emerald-50/60 hover:bg-emerald-50"
+              onClick={() => setExportModal(true)}
+              data-testid="export-button"
+              title={t("exportStudyHtml")}
+            >
+              <IconDownload size={14} />
+              <span>{t("exportStudyHtml")}</span>
+            </button>
+            <button
+              type="button"
               className="btn-primary flex items-center gap-1.5 !px-3.5 !py-2 text-xs font-bold"
               onClick={() => setEmailModal(true)}
             >
@@ -375,7 +474,7 @@ export function StudyDetail({
           </div>
         </div>
 
-        {/* Stats Row */}
+        {/* Stats */}
         <div className="mt-6 grid grid-cols-1 gap-3 border-t border-[var(--border)] pt-5 sm:grid-cols-3">
           {statItems.map((s) => (
             <div key={s.label} className="flex items-center gap-3">
@@ -385,109 +484,218 @@ export function StudyDetail({
               >
                 {s.icon}
               </div>
-              <div>
-                <p className="num text-base sm:text-lg font-bold leading-none">{s.value}</p>
-                <p className="mt-1 text-xs text-[var(--text-secondary)]">{s.label}</p>
+              <div className="min-w-0">
+                <p className="num text-base font-bold leading-none sm:text-lg">{s.value}</p>
+                <p className="mt-1 truncate text-xs text-[var(--text-secondary)]">{s.label}</p>
               </div>
             </div>
           ))}
         </div>
       </div>
 
-      {/* Participants Controls Bar */}
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="relative w-full sm:w-80">
-          <span className="pointer-events-none absolute inset-y-0 start-3.5 flex items-center text-[var(--text-tertiary)]">
-            <IconSearch size={16} />
-          </span>
-          <input
-            className="input !ps-11 !pe-9 py-2 text-xs sm:text-sm"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder={t("searchParticipants")}
-          />
-          {search && (
+      {/* ---------------- Roster controls ---------------- */}
+      <div className="card mb-4 p-3.5 sm:p-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="relative w-full lg:max-w-xs">
+            <span className="pointer-events-none absolute inset-y-0 start-3.5 flex items-center text-[var(--text-tertiary)]">
+              <IconSearch size={16} />
+            </span>
+            <input
+              className="input !py-2 !text-xs !ps-11 !pe-9 sm:!text-sm"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={t("searchParticipants")}
+              aria-label={t("searchParticipants")}
+              data-testid="participant-search"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch("")}
+                aria-label={t("clearSearch")}
+                className="absolute inset-y-0 end-3.5 flex items-center text-xs font-bold text-[var(--text-tertiary)] hover:text-[var(--text)]"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
             <button
-              onClick={() => setSearch("")}
-              className="absolute inset-y-0 end-3.5 flex items-center text-xs font-bold text-[var(--text-tertiary)] hover:text-[var(--text)]"
+              type="button"
+              className="btn-ghost flex items-center gap-1.5 !px-3.5 !py-2 text-xs font-bold"
+              onClick={() => setImportModal(true)}
+              data-testid="import-button"
             >
-              ✕
+              <IconUpload size={14} />
+              <span>{t("importParticipants")}</span>
+            </button>
+
+            <button
+              type="button"
+              className="btn-primary flex items-center gap-1.5 !px-3.5 !py-2 text-xs font-bold"
+              onClick={openAdd}
+              data-testid="add-participant-button"
+            >
+              <IconPlus size={14} />
+              <span>{t("addParticipant")}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Filters row */}
+        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          <label className="block">
+            <span className="mb-1 flex items-center gap-1 text-[11px] font-bold text-[var(--text-tertiary)]">
+              <IconFilter size={12} />
+              {t("filterCountry")}
+            </span>
+            <select
+              className="input !py-2 !text-xs"
+              value={countryFilter}
+              onChange={(e) => setCountryFilter(e.target.value)}
+              data-testid="country-filter"
+            >
+              <option value="all">{t("allCountries")}</option>
+              {countryCounts.map(([country, count]) => (
+                <option key={country} value={country}>
+                  {translateCountry(country, lang)} ({count})
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block">
+            <span className="mb-1 text-[11px] font-bold text-[var(--text-tertiary)]">
+              {t("filterFederation")}
+            </span>
+            <select
+              className="input !py-2 !text-xs"
+              value={federationFilter}
+              onChange={(e) => setFederationFilter(e.target.value)}
+              data-testid="federation-filter"
+            >
+              <option value="all">{t("allFederations")}</option>
+              {federationCounts.map(([federation, count]) => (
+                <option key={federation} value={federation}>
+                  {translateCountry(federation, lang)} ({count})
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block">
+            <span className="mb-1 text-[11px] font-bold text-[var(--text-tertiary)]">
+              {t("sortBy")}
+            </span>
+            <select
+              className="input !py-2 !text-xs"
+              value={sortKey}
+              onChange={(e) => setSortKey(e.target.value as SortKey)}
+              data-testid="sort-select"
+            >
+              <option value="original">{t("sortOriginal")}</option>
+              <option value="name">{t("sortName")}</option>
+              <option value="country">{t("sortCountry")}</option>
+              <option value="newest">{t("sortNewest")}</option>
+            </select>
+          </label>
+
+          <div className="block">
+            <span className="mb-1 block text-[11px] font-bold text-[var(--text-tertiary)]">
+              {t("viewModeTable")} / {t("viewModeCards")}
+            </span>
+            <div className="flex h-[42px] items-center gap-1 rounded-[14px] border border-[var(--border)] bg-white p-1">
+              <button
+                type="button"
+                onClick={() => setViewOverride("table")}
+                className={`flex-1 rounded-[10px] px-2 py-1.5 text-xs font-bold transition ${
+                  !showCards
+                    ? "bg-[var(--accent-tint)] text-[var(--accent-strong)]"
+                    : "text-[var(--text-secondary)]"
+                }`}
+              >
+                {t("viewModeTable")}
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewOverride("cards")}
+                className={`flex-1 rounded-[10px] px-2 py-1.5 text-xs font-bold transition ${
+                  showCards
+                    ? "bg-[var(--accent-tint)] text-[var(--accent-strong)]"
+                    : "text-[var(--text-secondary)]"
+                }`}
+              >
+                {t("viewModeCards")}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Country chips — a real, one-tap filter */}
+        {countryCounts.length > 1 && (
+          <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-[var(--border)] pt-3">
+            <button
+              type="button"
+              onClick={() => setCountryFilter("all")}
+              className={`rounded-full border px-2.5 py-1 text-[11px] font-bold transition ${
+                countryFilter === "all"
+                  ? "border-[var(--navy)] bg-[var(--navy)] text-white"
+                  : "border-[var(--border)] bg-white text-[var(--text-secondary)] hover:border-slate-300"
+              }`}
+            >
+              {t("allCountries")} <span className="num">({participants.length})</span>
+            </button>
+            {countryCounts.slice(0, 12).map(([country, count]) => (
+              <button
+                key={country}
+                type="button"
+                onClick={() =>
+                  setCountryFilter((prev) => (prev === country ? "all" : country))
+                }
+                data-testid={`country-chip-${country}`}
+                className={`rounded-full border px-2.5 py-1 text-[11px] font-bold transition ${
+                  countryFilter === country
+                    ? "border-[var(--accent-strong)] bg-[var(--accent-tint)] text-[var(--accent-strong)]"
+                    : "border-[var(--border)] bg-white text-[var(--text-secondary)] hover:border-slate-300"
+                }`}
+              >
+                {translateCountry(country, lang)} <span className="num">({count})</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-[var(--border)] pt-3 text-[11px] font-bold text-[var(--text-tertiary)]">
+          <span className="num">
+            {t("showingOf")} {filtered.length} {t("of")} {participants.length}
+            {activeFilters > 0 && ` — ${t("filters")}: ${activeFilters}`}
+          </span>
+          {activeFilters > 0 && (
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="rounded-full bg-[var(--bg)] px-2.5 py-1 font-bold text-[var(--text-secondary)] hover:text-[var(--text)]"
+              data-testid="clear-filters"
+            >
+              {t("clearFilters")}
             </button>
           )}
         </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Table / Cards toggle for mobile/tablet */}
-          <div className="flex rounded-xl bg-white p-0.5 border border-[var(--border)] sm:hidden">
-            <button
-              onClick={() => setViewMode("cards")}
-              className={`rounded-lg px-2.5 py-1 text-xs font-bold ${
-                viewMode === "cards" ? "bg-[var(--accent-tint)] text-[var(--accent-strong)]" : "text-[var(--text-secondary)]"
-              }`}
-            >
-              بطاقات
-            </button>
-            <button
-              onClick={() => setViewMode("table")}
-              className={`rounded-lg px-2.5 py-1 text-xs font-bold ${
-                viewMode === "table" ? "bg-[var(--accent-tint)] text-[var(--accent-strong)]" : "text-[var(--text-secondary)]"
-              }`}
-            >
-              جدول
-            </button>
-          </div>
-
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".xlsx,.xls,.docx,.doc,.csv,.tsv,.txt,.csx"
-            className="hidden"
-            onChange={handleDirectImport}
-          />
-
-          <button
-            className="btn-ghost flex items-center gap-1.5 !px-3.5 !py-2 text-xs font-bold"
-            onClick={() => fileInputRef.current?.click()}
-            title="استيراد كشف المشاركين فوراً من ملفات Excel أو Word أو CSV أو نص"
-          >
-            <IconUpload size={14} />
-            <span>{t("importParticipants")}</span>
-          </button>
-
-          <button
-            className="btn-ghost flex items-center gap-1.5 !px-3.5 !py-2 text-xs font-bold text-emerald-800 border-emerald-300/80 bg-emerald-50/50 hover:bg-emerald-50"
-            onClick={handleDirectExport}
-            title="تصدير وتحميل جدول المشاركين كملف HTML مستقل ومباشر"
-          >
-            <IconDownload size={14} />
-            <span>{t("exportStudyHtml")}</span>
-          </button>
-
-          <button
-            className="btn-primary flex items-center gap-1.5 !px-3.5 !py-2 text-xs font-bold"
-            onClick={openAdd}
-          >
-            <IconPlus size={14} />
-            <span>{t("addParticipant")}</span>
-          </button>
-        </div>
       </div>
 
-      {/* Participants Content: Table or Cards */}
-      <div className="card overflow-hidden">
+      {/* ---------------- Roster ---------------- */}
+      <div className="card overflow-hidden" data-testid="participant-roster">
         {filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
             <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--bg)] text-[var(--text-tertiary)]">
               <IconUsers size={26} />
             </div>
-            {search ? (
+            {activeFilters > 0 ? (
               <>
                 <p className="text-base font-bold text-[var(--text)]">{t("noResultsFound")}</p>
-                <button
-                  className="btn-ghost mt-4 text-xs font-bold"
-                  onClick={() => setSearch("")}
-                >
-                  {t("clearSearch")}
+                <button type="button" className="btn-ghost mt-4 text-xs font-bold" onClick={clearFilters}>
+                  {t("clearFilters")}
                 </button>
               </>
             ) : (
@@ -495,13 +703,15 @@ export function StudyDetail({
                 <p className="text-base font-bold text-[var(--text)]">{t("noParticipants")}</p>
                 <div className="mt-5 flex flex-wrap justify-center gap-3">
                   <button
+                    type="button"
                     className="btn-ghost flex items-center gap-2 text-xs font-bold"
-                    onClick={() => fileInputRef.current?.click()}
+                    onClick={() => setImportModal(true)}
                   >
                     <IconUpload size={15} />
                     <span>{t("importParticipants")}</span>
                   </button>
                   <button
+                    type="button"
                     className="btn-primary flex items-center gap-2 text-xs font-bold"
                     onClick={openAdd}
                   >
@@ -512,167 +722,179 @@ export function StudyDetail({
               </>
             )}
           </div>
-        ) : (
-          <>
-            {/* Mobile Cards View */}
-            <div
-              className={`p-3 space-y-2.5 sm:hidden ${
-                viewMode === "cards" ? "block" : "hidden"
-              }`}
-            >
-              {filtered.map((p, i) => (
-                <div
-                  key={p.id}
-                  className="rounded-xl border border-[var(--border)] bg-white p-3.5 transition shadow-2xs"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <span className="num flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--bg)] text-[11px] font-bold text-[var(--text-secondary)]">
-                        {i + 1}
-                      </span>
-                      <h4 className="text-sm font-bold text-[var(--text)]">{p.name}</h4>
-                    </div>
-                    {p.country && <CountryBadge country={p.country} />}
+        ) : showCards ? (
+          <div className="space-y-2.5 p-3" data-testid="roster-cards">
+            {filtered.map((p, i) => (
+              <div
+                key={p.id}
+                data-testid={`participant-row-${p.id}`}
+                className="rounded-xl border border-[var(--border)] bg-white p-3.5 shadow-2xs"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="num flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--bg)] text-[11px] font-bold text-[var(--text-secondary)]">
+                      {i + 1}
+                    </span>
+                    <h4 className="min-w-0 truncate text-sm font-bold text-[var(--text)]">
+                      {p.name}
+                    </h4>
                   </div>
-
-                  {p.federation && (
-                    <p className="mt-1.5 ps-8 text-xs text-[var(--text-secondary)]">
-                      الاتحاد: <span className="font-semibold text-[var(--text)]">{p.federation}</span>
-                    </p>
+                  {p.country && (
+                    <CountryBadge country={p.country} label={translateCountry(p.country, lang)} />
                   )}
-
-                  {(p.email || p.phone) && (
-                    <div className="mt-2.5 ps-8 flex flex-col gap-1 text-xs text-[var(--text-secondary)]">
-                      {p.email && (
-                        <span dir="ltr" className="num flex items-center justify-end gap-1.5">
-                          {p.email}
-                          <IconMail size={13} className="text-[var(--text-tertiary)]" />
-                        </span>
-                      )}
-                      {p.phone && (
-                        <span dir="ltr" className="num flex items-center justify-end gap-1.5">
-                          {p.phone}
-                          <IconPhone size={13} className="text-[var(--text-tertiary)]" />
-                        </span>
-                      )}
-                    </div>
-                  )}
-
-                  <div className="mt-3 flex justify-end gap-2 border-t border-[var(--border)] pt-2.5">
-                    <button
-                      onClick={() => openEdit(p)}
-                      className="flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-bold text-[var(--text-secondary)] hover:bg-[var(--bg)]"
-                    >
-                      <IconEdit size={13} />
-                      تعديل
-                    </button>
-                    <button
-                      onClick={() => setDeletingParticipant(p)}
-                      className="flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-bold text-red-600 hover:bg-red-50"
-                    >
-                      <IconTrash size={13} />
-                      حذف
-                    </button>
-                  </div>
                 </div>
-              ))}
-            </div>
 
-            {/* Desktop and Tablet Table View */}
-            <div
-              className={`overflow-x-auto ${
-                viewMode === "cards" ? "hidden sm:block" : "block"
-              }`}
-            >
-              <table className="w-full min-w-[700px] border-collapse text-right">
-                <thead>
-                  <tr className="border-b border-[var(--border)] bg-[var(--bg)]/60 text-xs text-[var(--text-secondary)]">
-                    <th className="px-5 py-3.5 text-start font-bold">#</th>
-                    <th className="px-5 py-3.5 text-start font-bold">{t("name")}</th>
-                    <th className="px-5 py-3.5 text-start font-bold">{t("federation")}</th>
-                    <th className="px-5 py-3.5 text-start font-bold">{t("country")}</th>
-                    <th className="px-5 py-3.5 text-start font-bold">
-                      {t("email")} / {t("phone")}
-                    </th>
-                    <th className="px-5 py-3.5 text-start font-bold">{t("actions")}</th>
+                {(p.federation || p.code) && (
+                  <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 ps-8 text-xs text-[var(--text-secondary)]">
+                    {p.federation && (
+                      <span>
+                        {t("federation")}:{" "}
+                        <b className="font-semibold text-[var(--text)]">
+                          {translateCountry(p.federation, lang)}
+                        </b>
+                      </span>
+                    )}
+                    {p.code && (
+                      <span className="num">
+                        {t("code")}: <b className="font-semibold text-[var(--text)]">{p.code}</b>
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {(p.email || p.phone) && (
+                  <div className="mt-2 flex flex-col gap-1 ps-8 text-xs text-[var(--text-secondary)]">
+                    {p.email && (
+                      <span dir="ltr" className="num flex items-center justify-end gap-1.5">
+                        {p.email}
+                        <IconMail size={13} className="text-[var(--text-tertiary)]" />
+                      </span>
+                    )}
+                    {p.phone && (
+                      <span dir="ltr" className="num flex items-center justify-end gap-1.5">
+                        {p.phone}
+                        <IconPhone size={13} className="text-[var(--text-tertiary)]" />
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                <div className="mt-3 flex justify-end gap-2 border-t border-[var(--border)] pt-2.5">
+                  <button
+                    type="button"
+                    onClick={() => openEdit(p)}
+                    className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-bold text-[var(--text-secondary)] hover:bg-[var(--bg)]"
+                  >
+                    <IconEdit size={13} />
+                    {t("edit")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDeletingParticipant(p)}
+                    data-testid={`delete-participant-${p.id}`}
+                    className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50"
+                  >
+                    <IconTrash size={13} />
+                    {t("delete")}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="table-scroll overflow-x-auto" data-testid="roster-table">
+            <table className="w-full min-w-[720px] border-collapse text-start">
+              <thead>
+                <tr className="border-b border-[var(--border)] bg-[var(--bg)]/70 text-xs text-[var(--text-secondary)]">
+                  <th className="px-4 py-3.5 text-start font-bold lg:px-5">#</th>
+                  <th className="px-4 py-3.5 text-start font-bold lg:px-5">{t("name")}</th>
+                  <th className="px-4 py-3.5 text-start font-bold lg:px-5">{t("federation")}</th>
+                  <th className="px-4 py-3.5 text-start font-bold lg:px-5">{t("country")}</th>
+                  <th className="px-4 py-3.5 text-start font-bold lg:px-5">
+                    {t("email")} / {t("phone")}
+                  </th>
+                  <th className="px-4 py-3.5 text-start font-bold lg:px-5">{t("actions")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((p, i) => (
+                  <tr
+                    key={p.id}
+                    data-testid={`participant-row-${p.id}`}
+                    className="border-b border-[var(--border)] transition last:border-0 hover:bg-[var(--bg)]/60"
+                  >
+                    <td className="num px-4 py-3 text-xs font-semibold text-[var(--text-tertiary)] lg:px-5">
+                      {i + 1}
+                    </td>
+                    <td className="px-4 py-3 text-sm font-bold text-[var(--text)] lg:px-5">
+                      <span className="block max-w-[280px] truncate" title={p.name}>
+                        {p.name}
+                      </span>
+                      {p.code && (
+                        <span className="num mt-0.5 block text-[11px] font-semibold text-[var(--text-tertiary)]">
+                          {t("code")}: {p.code}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-xs font-medium text-[var(--text-secondary)] lg:px-5">
+                      {p.federation ? translateCountry(p.federation, lang) : "—"}
+                    </td>
+                    <td className="px-4 py-3 lg:px-5">
+                      {p.country ? (
+                        <CountryBadge country={p.country} label={translateCountry(p.country, lang)} />
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    <td className="px-4 py-3 lg:px-5">
+                      <div className="flex flex-col gap-1 text-xs text-[var(--text-secondary)]">
+                        {p.email ? (
+                          <span dir="ltr" className="num flex items-center gap-1.5">
+                            <IconMail size={12} className="text-[var(--text-tertiary)]" />
+                            {p.email}
+                          </span>
+                        ) : (
+                          <span className="text-[var(--text-tertiary)]">—</span>
+                        )}
+                        {p.phone && (
+                          <span dir="ltr" className="num flex items-center gap-1.5">
+                            <IconPhone size={12} className="text-[var(--text-tertiary)]" />
+                            {p.phone}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 lg:px-5">
+                      <div className="flex gap-1">
+                        <button
+                          type="button"
+                          onClick={() => openEdit(p)}
+                          className="flex h-9 w-9 items-center justify-center rounded-full text-[var(--text-tertiary)] transition hover:bg-[var(--bg)] hover:text-[var(--text)]"
+                          aria-label={t("edit")}
+                          data-testid={`edit-participant-${p.id}`}
+                        >
+                          <IconEdit size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDeletingParticipant(p)}
+                          className="flex h-9 w-9 items-center justify-center rounded-full text-[var(--text-tertiary)] transition hover:bg-red-50 hover:text-red-600"
+                          aria-label={t("delete")}
+                          data-testid={`delete-participant-${p.id}`}
+                        >
+                          <IconTrash size={14} />
+                        </button>
+                      </div>
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((p, i) => (
-                    <tr
-                      key={p.id}
-                      className="border-b border-[var(--border)] transition last:border-0 hover:bg-[var(--bg)]/50"
-                    >
-                      <td className="num px-5 py-3 text-xs font-semibold text-[var(--text-tertiary)]">
-                        {i + 1}
-                      </td>
-                      <td className="px-5 py-3 text-sm font-bold text-[var(--text)]">{p.name}</td>
-                      <td className="px-5 py-3 text-xs text-[var(--text-secondary)] font-medium">
-                        {p.federation || "—"}
-                      </td>
-                      <td className="px-5 py-3">
-                        {p.country ? <CountryBadge country={p.country} /> : "—"}
-                      </td>
-                      <td className="px-5 py-3">
-                        <div className="flex flex-col gap-1 text-xs text-[var(--text-secondary)]">
-                          {p.email ? (
-                            <span dir="ltr" className="num flex items-center justify-end gap-1.5">
-                              {p.email}
-                              <IconMail size={12} className="text-[var(--text-tertiary)]" />
-                            </span>
-                          ) : (
-                            <span className="text-[var(--text-tertiary)]">—</span>
-                          )}
-                          {p.phone && (
-                            <span dir="ltr" className="num flex items-center justify-end gap-1.5">
-                              {p.phone}
-                              <IconPhone size={12} className="text-[var(--text-tertiary)]" />
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-5 py-3">
-                        <div className="flex gap-1">
-                          <button
-                            onClick={() => openEdit(p)}
-                            className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--text-tertiary)] transition hover:bg-[var(--bg)] hover:text-[var(--text)]"
-                            aria-label="Edit"
-                          >
-                            <IconEdit size={14} />
-                          </button>
-                          <button
-                            onClick={() => setDeletingParticipant(p)}
-                            className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--text-tertiary)] transition hover:bg-red-50 hover:text-red-600"
-                            aria-label="Delete"
-                          >
-                            <IconTrash size={14} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
-      {/* Edit Study Modal */}
-      <StudyModal
-        open={studyModal}
-        initial={{
-          title: study.title,
-          year: study.year,
-          description: study.description ?? "",
-          status: study.status,
-        }}
-        onClose={() => setStudyModal(false)}
-        onSubmit={handleStudySubmit}
-        saving={saving}
-      />
-
-      {/* Add / Edit Participant Modal */}
+      {/* ---------------- Modals ---------------- */}
       <ParticipantModal
         open={participantModal}
         initial={
@@ -683,6 +905,7 @@ export function StudyDetail({
                 country: editingParticipant.country ?? "",
                 email: editingParticipant.email ?? "",
                 phone: editingParticipant.phone ?? "",
+                code: editingParticipant.code ?? "",
               }
             : null
         }
@@ -691,68 +914,114 @@ export function StudyDetail({
         saving={saving}
       />
 
-      {/* Email Announcement Modal */}
+      <ExportModal
+        open={exportModal}
+        study={study}
+        participants={filtered}
+        totalCount={snapshot.participants.length}
+        onClose={() => setExportModal(false)}
+      />
+
+      <ImportModal
+        open={importModal}
+        studyId={study.id}
+        studyTitle={displayStudy.title}
+        existingNames={participants.map((p) => p.name)}
+        onClose={() => setImportModal(false)}
+        onSuccess={handleImported}
+      />
+
       <EmailModal
         open={emailModal}
         studyId={study.id}
-        studyTitle={study.title}
+        studyTitle={displayStudy.title}
         year={study.year}
         recipientCount={validEmails}
+        recipients={filtered.filter((p) => p.email && p.email.includes("@"))}
         brevoConfigured={brevoConfigured || false}
         onClose={() => setEmailModal(false)}
       />
 
-      {/* Delete Participant Modal */}
-      <Modal open={!!deletingParticipant} onClose={() => setDeletingParticipant(null)} title={t("delete")}>
+      {/* Delete participant */}
+      <Modal
+        open={!!deletingParticipant}
+        onClose={() => setDeletingParticipant(null)}
+        title={t("confirmDeleteParticipant")}
+        testId="delete-participant-modal"
+      >
         <div className="space-y-5">
           <div className="flex items-start gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-50 text-red-600">
               <IconTrash size={18} />
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="font-bold text-[var(--text)]">{t("deleteConfirm")}</p>
               <p className="mt-1 text-xs leading-relaxed text-[var(--text-secondary)]">
                 {t("deleteConfirmSub")}
               </p>
-              <p className="mt-2 text-xs font-bold text-slate-700 bg-slate-100 p-2 rounded-lg">
+              <p className="mt-2 rounded-lg bg-slate-100 p-2 text-xs font-bold text-slate-700">
                 {deletingParticipant?.name}
+                {deletingParticipant?.country ? ` — ${deletingParticipant.country}` : ""}
               </p>
             </div>
           </div>
-          <div className="flex justify-end gap-3">
-            <button className="btn-ghost text-xs" onClick={() => setDeletingParticipant(null)}>
+          <div className="flex flex-wrap justify-end gap-3">
+            <button
+              type="button"
+              className="btn-ghost text-xs"
+              onClick={() => setDeletingParticipant(null)}
+            >
               {t("cancel")}
             </button>
-            <button className="btn-danger text-xs font-bold" onClick={handleDeleteParticipant} disabled={saving}>
-              {saving ? <Spinner size={14} /> : t("delete")}
+            <button
+              type="button"
+              className="btn-danger flex items-center gap-2 text-xs font-bold"
+              onClick={handleDeleteParticipant}
+              disabled={saving}
+              data-testid="confirm-delete-participant"
+            >
+              {saving && <Spinner size={14} />}
+              {t("delete")}
             </button>
           </div>
         </div>
       </Modal>
 
-      {/* Delete Study Modal */}
-      <Modal open={deleteStudyOpen} onClose={() => setDeleteStudyOpen(false)} title={t("deleteStudy")}>
+      {/* Delete study */}
+      <Modal
+        open={deleteStudyOpen}
+        onClose={() => setDeleteStudyOpen(false)}
+        title={t("deleteStudy")}
+        testId="delete-study-modal"
+      >
         <div className="space-y-5">
           <div className="flex items-start gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-50 text-red-600">
               <IconTrash size={18} />
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="font-bold text-[var(--text)]">{t("deleteConfirm")}</p>
               <p className="mt-1 text-xs leading-relaxed text-[var(--text-secondary)]">
                 {t("deleteConfirmSub")}
               </p>
-              <p className="mt-2 text-xs font-bold text-slate-700 bg-slate-100 p-2 rounded-lg">
-                {study.title} ({study.year})
+              <p className="mt-2 rounded-lg bg-slate-100 p-2 text-xs font-bold text-slate-700">
+                {displayStudy.title} ({formatDate(study.year, lang)})
               </p>
             </div>
           </div>
-          <div className="flex justify-end gap-3">
-            <button className="btn-ghost text-xs" onClick={() => setDeleteStudyOpen(false)}>
+          <div className="flex flex-wrap justify-end gap-3">
+            <button type="button" className="btn-ghost text-xs" onClick={() => setDeleteStudyOpen(false)}>
               {t("cancel")}
             </button>
-            <button className="btn-danger text-xs font-bold" onClick={handleDeleteStudy} disabled={saving}>
-              {saving ? <Spinner size={14} /> : t("delete")}
+            <button
+              type="button"
+              className="btn-danger flex items-center gap-2 text-xs font-bold"
+              onClick={handleDeleteStudy}
+              disabled={saving}
+              data-testid="confirm-delete-study"
+            >
+              {saving && <Spinner size={14} />}
+              {t("delete")}
             </button>
           </div>
         </div>

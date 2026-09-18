@@ -1,7 +1,9 @@
 // @ts-nocheck
 import { defineCloudflareConfig } from "@opennextjs/cloudflare";
 
-export default {
+const openNextConfig = {
   ...defineCloudflareConfig(),
   buildCommand: "next build",
 };
+
+export default openNextConfig;

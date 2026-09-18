@@ -1,9 +1,9 @@
 import { db } from "@/db";
 import { studies, participants } from "@/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import { DEFAULT_STUDY, DEFAULT_PARTICIPANTS } from "./seed-data";
 
-export async function ensureSeed() {
+export async function ensureSchema() {
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS studies (
       id SERIAL PRIMARY KEY,
@@ -11,6 +11,8 @@ export async function ensureSeed() {
       year TEXT NOT NULL,
       description TEXT,
       status TEXT NOT NULL DEFAULT 'active',
+      title_en TEXT,
+      description_en TEXT,
       created_at TIMESTAMP DEFAULT NOW() NOT NULL
     );
     CREATE TABLE IF NOT EXISTS participants (
@@ -21,9 +23,19 @@ export async function ensureSeed() {
       country TEXT,
       email TEXT,
       phone TEXT,
+      code TEXT,
       created_at TIMESTAMP DEFAULT NOW() NOT NULL
     );
   `);
+
+  // Idempotent migrations for databases created before the new columns existed.
+  await db.execute(sql`ALTER TABLE studies ADD COLUMN IF NOT EXISTS title_en TEXT`);
+  await db.execute(sql`ALTER TABLE studies ADD COLUMN IF NOT EXISTS description_en TEXT`);
+  await db.execute(sql`ALTER TABLE participants ADD COLUMN IF NOT EXISTS code TEXT`);
+}
+
+export async function ensureSeed() {
+  await ensureSchema();
 
   const existing = await db.select({ id: studies.id }).from(studies).limit(1);
   if (existing.length > 0) return;
@@ -35,6 +47,8 @@ export async function ensureSeed() {
       year: DEFAULT_STUDY.year,
       description: DEFAULT_STUDY.description,
       status: DEFAULT_STUDY.status,
+      titleEn: DEFAULT_STUDY.titleEn,
+      descriptionEn: DEFAULT_STUDY.descriptionEn,
     })
     .returning({ id: studies.id });
 
@@ -55,4 +69,4 @@ export async function resetSeed() {
   await ensureSeed();
 }
 
-export { eq };
+export { eq } from "drizzle-orm";

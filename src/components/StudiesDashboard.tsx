@@ -1,9 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useLang } from "./lang";
+import { useToast } from "./toast";
+import { useMounted } from "./useMediaQuery";
 import { StudyModal, type StudyFormData } from "./StudyModal";
+import { ExportModal } from "./ExportModal";
 import {
   Modal,
   IconPlus,
@@ -18,15 +22,20 @@ import {
   StatusBadge,
   Spinner,
 } from "./ui";
-import type { StudyWithCount, Stats } from "@/lib/types";
-import { downloadStudyReport } from "@/lib/exporter";
+import type { StudyWithCount, Stats, Participant } from "@/lib/types";
+import { formatDate, localizeStudy } from "@/lib/content";
 import {
-  getLocalDashboardData,
-  getLocalStudyDetail,
+  getDashboardSnapshot,
+  getStudySnapshot,
   saveLocalStudy,
   deleteLocalStudy,
   subscribeStorage,
 } from "@/lib/storage";
+
+const EMPTY_STATS: Stats = { studies: 0, participants: 0, countries: 0, withEmail: 0 };
+const EMPTY_PARTICIPANTS: Participant[] = [];
+
+type SortKey = "newest" | "title" | "participants";
 
 export function StudiesDashboard({
   initialStudies,
@@ -35,130 +44,151 @@ export function StudiesDashboard({
   initialStudies?: StudyWithCount[] | null;
   initialStats?: Stats | null;
 }) {
-  const { t } = useLang();
+  const { t, lang } = useLang();
+  const toast = useToast();
+  const router = useRouter();
+  const mounted = useMounted();
 
-  // Local-first state initialization
-  const [studies, setStudies] = useState<StudyWithCount[]>(() => {
-    if (typeof window !== "undefined") {
-      const local = getLocalDashboardData();
-      if (local.studies.length > 0) return local.studies;
-    }
-    return initialStudies || [];
-  });
+  // The local-first store is the source of truth in the browser; the server
+  // payload only bootstraps the very first paint (and covers the case where a
+  // database holds studies this browser has never seen).
+  const serverSnapshot = useMemo(
+    () => ({
+      studies: initialStudies ?? [],
+      stats: initialStats ?? EMPTY_STATS,
+    }),
+    [initialStudies, initialStats],
+  );
 
-  const [stats, setStats] = useState<Stats>(() => {
-    if (typeof window !== "undefined") {
-      const local = getLocalDashboardData();
-      if (local.studies.length > 0) return local.stats;
-    }
-    return initialStats || { studies: 0, participants: 0, countries: 0, withEmail: 0 };
-  });
+  const getClientSnapshot = useCallback(() => {
+    const local = getDashboardSnapshot();
+    if (local.studies.length > 0) return local;
+    return serverSnapshot.studies.length > 0 ? serverSnapshot : local;
+  }, [serverSnapshot]);
+
+  const snapshot = useSyncExternalStore(
+    subscribeStorage,
+    getClientSnapshot,
+    () => serverSnapshot,
+  );
+  const studies = snapshot.studies;
+  const stats = snapshot.stats;
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [sortKey, setSortKey] = useState<SortKey>("newest");
   const [modalOpen, setModalOpen] = useState(false);
-  const [editing, setEditing] = useState<StudyWithCount | null>(null);
   const [deleting, setDeleting] = useState<StudyWithCount | null>(null);
+  const [exporting, setExporting] = useState<StudyWithCount | null>(null);
   const [saving, setSaving] = useState(false);
-
-  // Sync with local storage
-  const reloadData = () => {
-    const data = getLocalDashboardData();
-    setStudies(data.studies);
-    setStats(data.stats);
-  };
-
-  useEffect(() => {
-    reloadData();
-    return subscribeStorage(() => {
-      reloadData();
-    });
-  }, []);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return studies.filter((s) => {
+
+    const list = studies.filter((s) => {
+      const localized = localizeStudy(s, lang);
       const matchesSearch =
         !q ||
+        localized.title.toLowerCase().includes(q) ||
         s.title.toLowerCase().includes(q) ||
-        s.year.toLowerCase().includes(q) ||
+        String(s.year ?? "").toLowerCase().includes(q) ||
+        (localized.description ?? "").toLowerCase().includes(q) ||
         (s.description ?? "").toLowerCase().includes(q);
 
       const matchesStatus = statusFilter === "all" || s.status === statusFilter;
-
       return matchesSearch && matchesStatus;
     });
-  }, [studies, search, statusFilter]);
 
-  const openCreate = () => {
-    setEditing(null);
-    setModalOpen(true);
-  };
+    const sorted = [...list];
+    switch (sortKey) {
+      case "title":
+        sorted.sort((a, b) =>
+          localizeStudy(a, lang).title.localeCompare(localizeStudy(b, lang).title, lang),
+        );
+        break;
+      case "participants":
+        sorted.sort((a, b) => b.participantCount - a.participantCount);
+        break;
+      default:
+        sorted.sort(
+          (a, b) =>
+            new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime(),
+        );
+    }
+    return sorted;
+  }, [studies, search, statusFilter, sortKey, lang]);
 
-  const openEdit = (s: StudyWithCount) => {
-    setEditing(s);
-    setModalOpen(true);
-  };
+  const openCreate = () => setModalOpen(true);
 
-  const handleSubmit = async (data: StudyFormData) => {
+  const handleSubmit = (data: StudyFormData) => {
     setSaving(true);
     try {
-      saveLocalStudy({
-        id: editing?.id,
+      const saved = saveLocalStudy({
         title: data.title,
         year: data.year,
         description: data.description,
         status: data.status,
+        titleEn: data.titleEn,
+        descriptionEn: data.descriptionEn,
       });
       setModalOpen(false);
-      reloadData();
+      toast.success(t("studyUpdated"), {
+        label: t("edit"),
+        onClick: () => router.push(`/studies/${saved.id}/edit`),
+      });
     } finally {
       setSaving(false);
     }
   };
 
-  const handleDelete = async () => {
-    if (!deleting) return;
-    setSaving(true);
-    try {
-      deleteLocalStudy(deleting.id);
-      setDeleting(null);
-      reloadData();
-    } finally {
-      setSaving(false);
-    }
+  const handleDelete = () => {
+    const target = deleting;
+    if (!target) return;
+
+    setDeleting(null);
+    // Synchronous store update — the card disappears the moment we confirm.
+    deleteLocalStudy(target.id);
+
+    toast.success(
+      lang === "en" ? `Study deleted: ${target.title}` : `تم حذف الدراسة: ${target.title}`,
+    );
   };
 
-  const handleExport = (s: StudyWithCount) => {
-    const detail = getLocalStudyDetail(s.id);
-    downloadStudyReport(s, detail.participants);
-  };
+  const openExport = (s: StudyWithCount) => setExporting(s);
+
+  const exportParticipants = useMemo(
+    () => (exporting ? getStudySnapshot(exporting.id).participants : EMPTY_PARTICIPANTS),
+    [exporting],
+  );
+
+  // Before the local store hydrates we do not know the real numbers yet.
+  const unknown = mounted ? null : "—";
 
   const statCards = [
     {
       label: t("totalStudies"),
-      value: stats.studies,
+      value: unknown ?? stats.studies,
       icon: <IconLayers size={20} />,
+      tint: "#eff6ff",
+      color: "#0b2545",
+    },
+    {
+      label: t("totalParticipants"),
+      value: unknown ?? stats.participants,
+      icon: <IconUsers size={20} />,
       tint: "#ecfdf5",
       color: "#059669",
     },
     {
-      label: t("totalParticipants"),
-      value: stats.participants,
-      icon: <IconUsers size={20} />,
-      tint: "#eff6ff",
-      color: "#2563eb",
-    },
-    {
       label: t("countries"),
-      value: stats.countries,
+      value: unknown ?? stats.countries,
       icon: <IconGlobe size={20} />,
       tint: "#fdf4ff",
       color: "#a21caf",
     },
     {
       label: t("withEmail"),
-      value: stats.withEmail,
+      value: unknown ?? stats.withEmail,
       icon: <IconMail size={20} />,
       tint: "#fff7ed",
       color: "#ea580c",
@@ -166,31 +196,45 @@ export function StudiesDashboard({
   ];
 
   return (
-    <div className="animate-fade-up">
+    <div className="animate-fade-up pb-10">
       {/* Header */}
-      <div className="mb-8 flex items-center justify-between gap-4">
-        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl text-[var(--text)]">
-          {t("studies")}
-        </h1>
-        <button className="btn-primary flex items-center gap-2" onClick={openCreate}>
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-extrabold tracking-tight text-[var(--text)] sm:text-3xl">
+            {t("studies")}
+          </h1>
+          <p className="mt-1 text-xs text-[var(--text-secondary)] sm:text-sm">
+            {mounted
+              ? `${studies.length} ${t("totalStudies").toLowerCase()} • ${stats.participants} ${t("participants")}`
+              : t("appTagline")}
+          </p>
+        </div>
+        <button
+          type="button"
+          className="btn-primary flex items-center gap-2 !px-4 !py-2.5 text-sm"
+          onClick={openCreate}
+          data-testid="new-study-button"
+        >
           <IconPlus size={18} />
           <span>{t("newStudy")}</span>
         </button>
       </div>
 
-      {/* Stats Cards */}
-      <div className="mb-8 grid grid-cols-2 gap-3.5 sm:gap-4 lg:grid-cols-4">
+      {/* Stats */}
+      <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
         {statCards.map((c) => (
-          <div key={c.label} className="card flex items-center gap-3.5 p-4 sm:p-5">
+          <div key={c.label} className="card flex items-center gap-3 p-3.5 sm:p-4">
             <div
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl sm:h-12 sm:w-12"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl sm:h-11 sm:w-11"
               style={{ background: c.tint, color: c.color }}
             >
               {c.icon}
             </div>
-            <div>
-              <p className="num text-xl font-bold leading-none sm:text-2xl">{c.value}</p>
-              <p className="mt-1.5 text-xs sm:text-sm text-[var(--text-secondary)] font-medium">
+            <div className="min-w-0">
+              <p className="num text-lg font-extrabold leading-none sm:text-2xl">
+                {c.value}
+              </p>
+              <p className="mt-1.5 truncate text-[11px] font-medium text-[var(--text-secondary)] sm:text-xs">
                 {c.label}
               </p>
             </div>
@@ -198,9 +242,9 @@ export function StudiesDashboard({
         ))}
       </div>
 
-      {/* Filter and Search Bar */}
-      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap items-center gap-1.5 rounded-2xl bg-white p-1 border border-[var(--border)] shadow-2xs">
+      {/* Filters */}
+      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-wrap items-center gap-1 rounded-2xl border border-[var(--border)] bg-white p-1 shadow-2xs">
           {[
             { id: "all", label: t("all") },
             { id: "active", label: t("active") },
@@ -209,7 +253,9 @@ export function StudiesDashboard({
           ].map((tab) => (
             <button
               key={tab.id}
+              type="button"
               onClick={() => setStatusFilter(tab.id)}
+              aria-pressed={statusFilter === tab.id}
               className={`rounded-xl px-3 py-1.5 text-xs font-bold transition ${
                 statusFilter === tab.id
                   ? "bg-[var(--accent-tint)] text-[var(--accent-strong)]"
@@ -221,29 +267,57 @@ export function StudiesDashboard({
           ))}
         </div>
 
-        <div className="relative w-full sm:w-80">
-          <span className="pointer-events-none absolute inset-y-0 start-3.5 flex items-center text-[var(--text-tertiary)]">
-            <IconSearch size={16} />
-          </span>
-          <input
-            className="input !ps-11 !pe-9 py-2 text-sm"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder={t("searchStudies")}
-          />
-          {search && (
-            <button
-              onClick={() => setSearch("")}
-              className="absolute inset-y-0 end-3.5 flex items-center text-xs font-bold text-[var(--text-tertiary)] hover:text-[var(--text)]"
-            >
-              ✕
-            </button>
-          )}
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <select
+            className="input !py-2 !text-xs sm:w-44"
+            value={sortKey}
+            onChange={(e) => setSortKey(e.target.value as SortKey)}
+            aria-label={t("sortBy")}
+          >
+            <option value="newest">{t("sortNewest")}</option>
+            <option value="title">{t("sortName")}</option>
+            <option value="participants">{t("totalParticipants")}</option>
+          </select>
+
+          <div className="relative w-full sm:w-72">
+            <span className="pointer-events-none absolute inset-y-0 start-3.5 flex items-center text-[var(--text-tertiary)]">
+              <IconSearch size={16} />
+            </span>
+            <input
+              className="input !py-2 !text-xs !ps-11 !pe-9 sm:!text-sm"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={t("searchStudies")}
+              aria-label={t("searchStudies")}
+              data-testid="study-search"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch("")}
+                aria-label={t("clearSearch")}
+                className="absolute inset-y-0 end-3.5 flex items-center text-xs font-bold text-[var(--text-tertiary)] hover:text-[var(--text)]"
+              >
+                ✕
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Studies Grid or Empty State */}
-      {filtered.length === 0 ? (
+      {/* Studies */}
+      {!mounted && studies.length === 0 ? (
+        <div className="grid gap-3.5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4" aria-busy="true">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="card p-5">
+              <div className="mb-4 h-5 w-20 rounded-full bg-[var(--bg)]" />
+              <div className="mb-2 h-4 w-full rounded-full bg-[var(--bg)]" />
+              <div className="mb-5 h-4 w-2/3 rounded-full bg-[var(--bg)]" />
+              <div className="h-8 w-full rounded-full bg-[var(--bg)]" />
+            </div>
+          ))}
+        </div>
+      ) : filtered.length === 0 ? (
         <div className="card flex flex-col items-center justify-center px-6 py-16 text-center">
           <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--bg)] text-[var(--text-tertiary)]">
             <IconLayers size={26} />
@@ -252,19 +326,24 @@ export function StudiesDashboard({
             <>
               <p className="text-base font-bold text-[var(--text)]">{t("noResultsFound")}</p>
               <button
+                type="button"
                 className="btn-ghost mt-4 text-xs font-bold"
                 onClick={() => {
                   setSearch("");
                   setStatusFilter("all");
                 }}
               >
-                {t("clearSearch")}
+                {t("clearFilters")}
               </button>
             </>
           ) : (
             <>
               <p className="text-base font-bold text-[var(--text)]">{t("noStudies")}</p>
-              <button className="btn-primary mt-5 flex items-center gap-2" onClick={openCreate}>
+              <button
+                type="button"
+                className="btn-primary mt-5 flex items-center gap-2"
+                onClick={openCreate}
+              >
                 <IconPlus size={16} />
                 <span>{t("newStudy")}</span>
               </button>
@@ -272,14 +351,15 @@ export function StudiesDashboard({
           )}
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+        <div className="grid gap-3.5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
           {filtered.map((s, i) => (
             <StudyCard
               key={s.id}
               study={s}
               index={i}
-              onExport={() => handleExport(s)}
-              onEdit={() => openEdit(s)}
+              lang={lang}
+              onExport={() => openExport(s)}
+              onEdit={() => router.push(`/studies/${s.id}/edit`)}
               onDelete={() => setDeleting(s)}
               t={t}
             />
@@ -287,47 +367,60 @@ export function StudiesDashboard({
         </div>
       )}
 
-      {/* Create / Edit Study Modal */}
+      {/* Create study */}
       <StudyModal
         open={modalOpen}
-        initial={
-          editing
-            ? {
-                title: editing.title,
-                year: editing.year,
-                description: editing.description ?? "",
-                status: editing.status,
-              }
-            : null
-        }
+        initial={null}
         onClose={() => setModalOpen(false)}
         onSubmit={handleSubmit}
         saving={saving}
       />
 
-      {/* Delete Confirmation Modal */}
-      <Modal open={!!deleting} onClose={() => setDeleting(null)} title={t("deleteStudy")}>
+      {/* Export studio */}
+      <ExportModal
+        open={!!exporting}
+        study={exporting}
+        participants={exportParticipants}
+        totalCount={exporting?.participantCount}
+        onClose={() => setExporting(null)}
+      />
+
+      {/* Delete confirmation */}
+      <Modal
+        open={!!deleting}
+        onClose={() => setDeleting(null)}
+        title={t("deleteStudy")}
+        testId="delete-study-modal"
+      >
         <div className="space-y-5">
           <div className="flex items-start gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-50 text-red-600">
               <IconTrash size={18} />
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="font-bold text-[var(--text)]">{t("deleteConfirm")}</p>
               <p className="mt-1 text-xs leading-relaxed text-[var(--text-secondary)]">
                 {t("deleteConfirmSub")}
               </p>
-              <p className="mt-2 text-xs font-bold text-slate-700 bg-slate-100 p-2 rounded-lg">
-                {deleting?.title} ({deleting?.year})
+              <p className="mt-2 rounded-lg bg-slate-100 p-2 text-xs font-bold text-slate-700">
+                {deleting ? localizeStudy(deleting, lang).title : ""} (
+                {deleting ? formatDate(deleting.year, lang) : ""})
               </p>
             </div>
           </div>
-          <div className="flex justify-end gap-3">
-            <button className="btn-ghost text-xs" onClick={() => setDeleting(null)}>
+          <div className="flex flex-wrap justify-end gap-3">
+            <button type="button" className="btn-ghost text-xs" onClick={() => setDeleting(null)}>
               {t("cancel")}
             </button>
-            <button className="btn-danger text-xs font-bold" onClick={handleDelete} disabled={saving}>
-              {saving ? <Spinner size={14} /> : t("delete")}
+            <button
+              type="button"
+              className="btn-danger flex items-center gap-2 text-xs font-bold"
+              onClick={handleDelete}
+              disabled={saving}
+              data-testid="confirm-delete-study"
+            >
+              {saving && <Spinner size={14} />}
+              {t("delete")}
             </button>
           </div>
         </div>
@@ -339,6 +432,7 @@ export function StudiesDashboard({
 function StudyCard({
   study,
   index,
+  lang,
   onExport,
   onEdit,
   onDelete,
@@ -346,75 +440,101 @@ function StudyCard({
 }: {
   study: StudyWithCount;
   index: number;
+  lang: "ar" | "en";
   onExport: () => void;
   onEdit: () => void;
   onDelete: () => void;
   t: (k: string) => string;
 }) {
+  const localized = localizeStudy(study, lang);
+
   return (
-    <Link
-      href={`/studies/${study.id}`}
-      className="card group flex flex-col justify-between p-5 transition hover:-translate-y-0.5 hover:shadow-[0_10px_28px_-10px_rgba(0,0,0,0.12)]"
+    <article
+      className="card group relative flex flex-col justify-between p-4 transition hover:-translate-y-0.5 hover:shadow-[0_10px_28px_-10px_rgba(11,37,69,0.18)] sm:p-5"
       style={{ animationDelay: `${index * 35}ms` }}
+      data-testid={`study-card-${study.id}`}
     >
-      <div>
+      <Link
+        href={`/studies/${study.id}`}
+        className="absolute inset-0 z-0 rounded-[var(--radius)]"
+        aria-label={localized.title}
+        data-testid="study-card-link"
+      />
+
+      <div className="relative z-10 pointer-events-none">
         <div className="mb-3 flex items-start justify-between gap-2">
-          <span className="num inline-flex items-center rounded-full bg-[var(--bg)] px-3 py-1 text-xs font-bold text-[var(--text-secondary)]">
-            {study.year}
+          <span className="num inline-flex items-center rounded-full bg-[#eef2f7] px-2.5 py-1 text-[11px] font-bold text-[var(--navy)]">
+            {formatDate(study.year, lang)}
           </span>
           <StatusBadge status={study.status} label={t(study.status)} />
         </div>
 
-        <h3 className="mb-2 line-clamp-2 text-base font-bold leading-snug group-hover:text-[var(--accent-strong)] transition-colors">
-          {study.title}
+        <h3
+          className="mb-2 line-clamp-2 text-base font-extrabold leading-snug text-[var(--navy)] transition-colors sm:text-[17px]"
+          data-testid="study-card-title"
+        >
+          {localized.title}
         </h3>
-        {study.description && (
-          <p className="mb-4 line-clamp-2 text-xs leading-relaxed text-[var(--text-secondary)]">
-            {study.description}
+        {localized.description && (
+          <p
+            className="mb-3 line-clamp-2 text-xs leading-relaxed text-[var(--text-secondary)]"
+            data-testid="study-card-description"
+          >
+            {localized.description}
           </p>
         )}
       </div>
 
-      <div className="mt-4 flex items-center justify-between border-t border-[var(--border)] pt-3">
-        <span className="flex items-center gap-1.5 text-xs font-bold text-[var(--text-secondary)]">
-          <IconUsers size={15} />
+      <div className="pointer-events-none relative z-10 mt-3 flex items-center justify-between gap-2 border-t border-[var(--border)] pt-3">
+        <span className="flex min-w-0 items-center gap-1.5 text-xs font-bold text-[var(--text-secondary)]">
+          <IconUsers size={15} className="shrink-0" />
           <span className="num">{study.participantCount}</span>
-          <span>{t("participants")}</span>
+          <span className="truncate">{t("participants")}</span>
         </span>
-        <div className="flex gap-1" onClick={(e) => e.preventDefault()}>
+
+        <div className="pointer-events-auto relative z-20 flex shrink-0 gap-1">
           <button
+            type="button"
             onClick={(e) => {
               e.preventDefault();
+              e.stopPropagation();
               onExport();
             }}
-            className="flex h-8 w-8 items-center justify-center rounded-full text-emerald-600 transition hover:bg-emerald-50 hover:text-emerald-700"
-            title="تصدير كـ HTML"
-            aria-label="تصدير كـ HTML"
+            className="flex h-9 w-9 items-center justify-center rounded-full text-emerald-600 transition hover:bg-emerald-50 hover:text-emerald-700"
+            title={t("exportStudyHtml")}
+            aria-label={t("exportStudyHtml")}
+            data-testid={`export-study-${study.id}`}
           >
             <IconDownload size={15} />
           </button>
           <button
+            type="button"
             onClick={(e) => {
               e.preventDefault();
+              e.stopPropagation();
               onEdit();
             }}
-            className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--text-tertiary)] transition hover:bg-[var(--bg)] hover:text-[var(--text)]"
-            aria-label="Edit"
+            className="flex h-9 w-9 items-center justify-center rounded-full text-[var(--text-tertiary)] transition hover:bg-[var(--bg)] hover:text-[var(--text)]"
+            aria-label={t("editStudy")}
+            data-testid={`edit-study-${study.id}`}
           >
             <IconEdit size={15} />
           </button>
           <button
+            type="button"
             onClick={(e) => {
               e.preventDefault();
+              e.stopPropagation();
               onDelete();
             }}
-            className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--text-tertiary)] transition hover:bg-red-50 hover:text-red-600"
-            aria-label="Delete"
+            className="flex h-9 w-9 items-center justify-center rounded-full text-[var(--text-tertiary)] transition hover:bg-red-50 hover:text-red-600"
+            aria-label={t("deleteStudy")}
+            data-testid={`delete-study-${study.id}`}
           >
             <IconTrash size={15} />
           </button>
         </div>
       </div>
-    </Link>
+    </article>
   );
 }

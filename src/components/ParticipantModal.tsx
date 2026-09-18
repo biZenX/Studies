@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Modal, Field, Spinner, IconMail, IconPhone } from "./ui";
 import { useLang } from "./lang";
 
@@ -10,6 +10,17 @@ export type ParticipantFormData = {
   country: string;
   email: string;
   phone: string;
+  /** Optional file / membership number detected by the smart importer. */
+  code: string;
+};
+
+const EMPTY: ParticipantFormData = {
+  name: "",
+  federation: "",
+  country: "",
+  email: "",
+  phone: "",
+  code: "",
 };
 
 export function ParticipantModal({
@@ -26,13 +37,7 @@ export function ParticipantModal({
   saving: boolean;
 }) {
   const { t } = useLang();
-  const [form, setForm] = useState<ParticipantFormData>({
-    name: "",
-    federation: "",
-    country: "",
-    email: "",
-    phone: "",
-  });
+  const [form, setForm] = useState<ParticipantFormData>(EMPTY);
   const [error, setError] = useState("");
   const [prevProps, setPrevProps] = useState<{ open: boolean; initial: ParticipantFormData | null }>({
     open: false,
@@ -42,7 +47,7 @@ export function ParticipantModal({
   if (open !== prevProps.open || initial !== prevProps.initial) {
     setPrevProps({ open, initial });
     if (open) {
-      setForm(initial ?? { name: "", federation: "", country: "", email: "", phone: "" });
+      setForm(initial ? { ...EMPTY, ...initial } : EMPTY);
       setError("");
     }
   }
@@ -61,6 +66,7 @@ export function ParticipantModal({
       open={open}
       onClose={onClose}
       title={initial ? t("editParticipant") : t("addParticipant")}
+      testId="participant-modal"
     >
       <form onSubmit={submit} className="space-y-4">
         <Field label={t("name")} required>
@@ -72,10 +78,11 @@ export function ParticipantModal({
               if (error) setError("");
             }}
             placeholder={t("namePh")}
+            data-testid="participant-name-input"
           />
         </Field>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label={t("federation")}>
             <input
               className="input"
@@ -90,9 +97,19 @@ export function ParticipantModal({
               value={form.country}
               onChange={(e) => setForm({ ...form, country: e.target.value })}
               placeholder={t("countryPh")}
+              list="country-options"
             />
           </Field>
         </div>
+
+        <Field label={t("code")}>
+          <input
+            className="input num"
+            value={form.code}
+            onChange={(e) => setForm({ ...form, code: e.target.value })}
+            placeholder={t("codePh")}
+          />
+        </Field>
 
         <Field label={t("email")}>
           <div className="relative">
@@ -125,15 +142,18 @@ export function ParticipantModal({
           </div>
         </Field>
 
-        {error && (
-          <p className="text-sm font-semibold text-[var(--danger)]">{error}</p>
-        )}
+        {error && <p className="text-sm font-semibold text-[var(--danger)]">{error}</p>}
 
-        <div className="flex justify-end gap-3 pt-2">
+        <div className="flex flex-wrap justify-end gap-3 pt-2">
           <button type="button" className="btn-ghost" onClick={onClose}>
             {t("cancel")}
           </button>
-          <button type="submit" className="btn-primary" disabled={saving}>
+          <button
+            type="submit"
+            className="btn-primary"
+            disabled={saving}
+            data-testid="participant-save"
+          >
             {saving ? <Spinner size={16} /> : t("save")}
           </button>
         </div>

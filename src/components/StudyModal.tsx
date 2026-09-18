@@ -1,15 +1,30 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Modal, Field, Spinner } from "./ui";
 import { useLang } from "./lang";
+import { formatDate, isIsoDate, toDateInputValue, todayIso } from "@/lib/content";
 
 export type StudyFormData = {
   title: string;
+  /** ISO date (YYYY-MM-DD); legacy records may still hold a bare year. */
   year: string;
   description: string;
   status: string;
+  titleEn?: string;
+  descriptionEn?: string;
 };
+
+function emptyForm(): StudyFormData {
+  return {
+    title: "",
+    year: todayIso(),
+    description: "",
+    status: "active",
+    titleEn: "",
+    descriptionEn: "",
+  };
+}
 
 export function StudyModal({
   open,
@@ -24,38 +39,43 @@ export function StudyModal({
   onSubmit: (data: StudyFormData) => void;
   saving: boolean;
 }) {
-  const { t } = useLang();
-  const [form, setForm] = useState<StudyFormData>({
-    title: "",
-    year: "",
-    description: "",
-    status: "active",
-  });
+  const { t, lang } = useLang();
+  const [form, setForm] = useState<StudyFormData>(emptyForm);
   const [error, setError] = useState("");
   const [prevProps, setPrevProps] = useState<{ open: boolean; initial: StudyFormData | null }>({
     open: false,
     initial: null,
   });
 
+  // Derive state from props during render (React's recommended pattern) so the
+  // form always reflects the record being edited.
   if (open !== prevProps.open || initial !== prevProps.initial) {
     setPrevProps({ open, initial });
     if (open) {
-      setForm(initial ?? { title: "", year: "", description: "", status: "active" });
+      setForm(initial ? { ...emptyForm(), ...initial } : emptyForm());
       setError("");
     }
   }
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.title.trim() || !form.year.trim()) {
+    if (!form.title.trim() || !String(form.year).trim()) {
       setError(t("missingFields"));
       return;
     }
     onSubmit(form);
   };
 
+  const dateValue = toDateInputValue(form.year);
+  const legacyYear = !isIsoDate(form.year) && Boolean(form.year);
+
   return (
-    <Modal open={open} onClose={onClose} title={initial ? t("editStudy") : t("createStudy")}>
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={initial ? t("editStudyPage") : t("createStudy")}
+      testId="study-modal"
+    >
       <form onSubmit={submit} className="space-y-4">
         <Field label={t("studyTitle")} required>
           <input
@@ -66,21 +86,44 @@ export function StudyModal({
               if (error) setError("");
             }}
             placeholder={t("studyTitlePh")}
+            data-testid="study-title-input"
           />
         </Field>
 
-        <div className="grid grid-cols-2 gap-4">
-          <Field label={t("year")} required>
+        <Field label={t("studyTitleEn")}>
+          <input
+            className="input"
+            dir="ltr"
+            value={form.titleEn ?? ""}
+            onChange={(e) => setForm({ ...form, titleEn: e.target.value })}
+            placeholder="Shown when the interface language is English"
+          />
+        </Field>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Field label={t("date")} required>
             <input
-              className="input"
-              value={form.year}
+              type="date"
+              className="input num"
+              value={dateValue}
               onChange={(e) => {
                 setForm({ ...form, year: e.target.value });
                 if (error) setError("");
               }}
-              placeholder={t("yearPh")}
+              data-testid="study-date-input"
             />
+            {dateValue && (
+              <span className="mt-1 block text-[11px] font-semibold text-[var(--text-tertiary)]">
+                {formatDate(dateValue, lang)}
+              </span>
+            )}
+            {legacyYear && (
+              <span className="mt-1 block text-[11px] font-semibold text-amber-600">
+                القيمة المحفوظة حالياً «{form.year}» — اختر التاريخ الكامل لتحديثها.
+              </span>
+            )}
           </Field>
+
           <Field label={t("status")}>
             <select
               className="input"
@@ -96,22 +139,31 @@ export function StudyModal({
 
         <Field label={t("description")}>
           <textarea
-            className="input min-h-[90px] resize-none"
+            className="input min-h-[90px] resize-y"
             value={form.description}
             onChange={(e) => setForm({ ...form, description: e.target.value })}
             placeholder={t("descriptionPh")}
+            data-testid="study-description-input"
           />
         </Field>
 
-        {error && (
-          <p className="text-sm font-semibold text-[var(--danger)]">{error}</p>
-        )}
+        <Field label={t("descriptionEn")}>
+          <textarea
+            className="input min-h-[70px] resize-y"
+            dir="ltr"
+            value={form.descriptionEn ?? ""}
+            onChange={(e) => setForm({ ...form, descriptionEn: e.target.value })}
+            placeholder="Optional English description"
+          />
+        </Field>
 
-        <div className="flex justify-end gap-3 pt-2">
+        {error && <p className="text-sm font-semibold text-[var(--danger)]">{error}</p>}
+
+        <div className="flex flex-wrap justify-end gap-3 pt-2">
           <button type="button" className="btn-ghost" onClick={onClose}>
             {t("cancel")}
           </button>
-          <button type="submit" className="btn-primary" disabled={saving}>
+          <button type="submit" className="btn-primary" disabled={saving} data-testid="study-save">
             {saving ? <Spinner size={16} /> : t("save")}
           </button>
         </div>
