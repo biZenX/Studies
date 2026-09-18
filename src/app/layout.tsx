@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
-import { IBM_Plex_Sans_Arabic, Inter } from "next/font/google";
+import { IBM_Plex_Sans_Arabic, Inter, Cairo } from "next/font/google";
 import "./globals.css";
 import { AppShell } from "@/components/AppShell";
 import { PwaRegister } from "@/components/PwaRegister";
@@ -9,6 +9,13 @@ const ibmPlexArabic = IBM_Plex_Sans_Arabic({
   subsets: ["arabic"],
   weight: ["300", "400", "500", "600", "700"],
   variable: "--font-ibm-plex-arabic",
+  display: "swap",
+});
+
+const cairo = Cairo({
+  subsets: ["arabic", "latin"],
+  weight: ["600", "700", "800", "900"],
+  variable: "--font-cairo",
   display: "swap",
 });
 
@@ -27,7 +34,10 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "سجل الدراسات",
+    title: "الدراسات",
+  },
+  formatDetection: {
+    telephone: false,
   },
   icons: {
     icon: "/icon-192.png",
@@ -37,9 +47,12 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: "#059669",
+  colorScheme: "light",
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
+  // Zoom must stay available — `maximumScale: 1` blocks pinch-zoom and is one
+  // of the reasons the app felt broken on phones.
+  minimumScale: 1,
   viewportFit: "cover",
 };
 
@@ -48,7 +61,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html
       lang="ar"
       dir="rtl"
-      className={`${ibmPlexArabic.variable} ${inter.variable}`}
+      className={`${ibmPlexArabic.variable} ${cairo.variable} ${inter.variable}`}
     >
       <body className="antialiased selection:bg-emerald-100 selection:text-emerald-900">
         <PwaRegister />
@@ -57,4 +70,3 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     </html>
   );
 }
-

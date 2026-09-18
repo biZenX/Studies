@@ -3,9 +3,18 @@ import { pgTable, serial, text, integer, timestamp } from "drizzle-orm/pg-core";
 export const studies = pgTable("studies", {
   id: serial("id").primaryKey(),
   title: text("title").notNull(),
+  /**
+   * Free-form date field. Historically this held a 4-digit year, it now holds a
+   * full ISO date (YYYY-MM-DD) whenever the user picks one. Both are accepted so
+   * old records keep working.
+   */
   year: text("year").notNull(),
   description: text("description"),
   status: text("status").notNull().default("active"),
+  /** Optional English title used when the UI language is switched to English. */
+  titleEn: text("title_en"),
+  /** Optional English description used when the UI language is English. */
+  descriptionEn: text("description_en"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -19,6 +28,12 @@ export const participants = pgTable("participants", {
   country: text("country"),
   email: text("email"),
   phone: text("phone"),
+  /**
+   * Optional "file / registration number" that some source sheets carry. It is
+   * only filled when the smart importer decides a numeric column is a real
+   * identifier and not a plain 1,2,3 row counter.
+   */
+  code: text("code"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

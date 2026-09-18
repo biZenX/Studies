@@ -26,6 +26,7 @@ export async function PUT(
   if (body.email !== undefined)
     values.email = String(body.email).trim() || null;
   if (body.phone !== undefined) values.phone = String(body.phone).trim() || null;
+  if (body.code !== undefined) values.code = String(body.code).trim() || null;
 
   if (values.name === "") {
     return NextResponse.json({ error: "Name is required" }, { status: 400 });

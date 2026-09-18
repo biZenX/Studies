@@ -1,9 +1,13 @@
 export const DEFAULT_STUDY = {
   title: "خصائص وتحديات تدريب لاعبات المساقات",
-  year: "2026",
+  /** Full ISO date — the UI labels this "التاريخ" (date) instead of "السنة" (year). */
+  year: "2026-01-01",
   description:
     "دراسة تدريبية إقليمية تستهدف تأهيل لاعبات المساقات وتطوير مهاراتهن الفنية والبدنية والذهنية.",
   status: "active",
+  titleEn: "Characteristics and Challenges of Training Female Distance Athletes",
+  descriptionEn:
+    "A regional training study aimed at qualifying female distance athletes and developing their technical, physical and mental skills.",
 };
 
 export const DEFAULT_PARTICIPANTS: [string, string][] = [

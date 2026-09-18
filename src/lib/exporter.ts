@@ -1,347 +1,179 @@
 import type { Participant, Study } from "./types";
+import { formatDate, translateCountry, toDateInputValue } from "./content";
 
-export function generateStudyHtmlReport(
-  study?: Pick<Study, "title" | "year" | "description"> | null,
-  participants: Participant[] = []
-): string {
-  const safeStudy = {
-    title: study?.title || "كشف المشاركين",
-    year: study?.year || String(new Date().getFullYear()),
-    description: study?.description || "",
-  };
-  const safeParticipants = Array.isArray(participants) ? participants : [];
+/* ------------------------------------------------------------------ *
+ * Export options — everything the export dialog can control
+ * ------------------------------------------------------------------ */
 
-  const rowsHtml = safeParticipants
-    .map((p, idx) => {
-      const federationText = p?.federation ? escapeHtml(p.federation) : (p?.country ? escapeHtml(p.country) : "—");
-      const nameText = escapeHtml(p?.name || "بدون اسم");
+export type ExportTheme = "navy" | "emerald" | "slate" | "burgundy";
+export type PageSize = "a4" | "letter" | "auto";
+export type Orientation = "portrait" | "landscape";
+export type Density = "comfortable" | "compact";
+export type ExportSort = "original" | "name" | "country" | "federation";
 
-      return `
-          <tr>
-            <td class="num text-center">${idx + 1}</td>
-            <td class="name-cell">${nameText}</td>
-            <td class="federation-cell">${federationText}</td>
-          </tr>`;
-    })
-    .join("");
+export type ExportColumns = {
+  serial: boolean;
+  name: boolean;
+  federation: boolean;
+  country: boolean;
+  code: boolean;
+  email: boolean;
+  phone: boolean;
+};
 
-  return `<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${escapeHtml(safeStudy.title)} — كشف المشاركين</title>
-  <style>
-    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap');
+export type ExportOptions = {
+  /** Document language — also flips the direction of the generated file. */
+  lang: "ar" | "en";
+  /** Optional title/description override (already localised by the caller). */
+  title?: string;
+  description?: string;
+  /** "date" renders a full date, "year" only the year, "hidden" removes the badge. */
+  dateMode: "date" | "year" | "hidden";
+  columns: ExportColumns;
+  sortBy: ExportSort;
+  groupByCountry: boolean;
+  showStats: boolean;
+  showSearch: boolean;
+  showPrint: boolean;
+  showCountryBreakdown: boolean;
+  showFooterNote: boolean;
+  footerNote: string;
+  /** Keep row numbers consecutive after the built-in search filters rows. */
+  renumberOnFilter: boolean;
+  pageSize: PageSize;
+  orientation: Orientation;
+  density: Density;
+  zebra: boolean;
+  theme: ExportTheme;
+  fileName?: string;
+};
 
-    :root {
-      --primary: #059669;
-      --primary-dark: #047857;
-      --text-main: #0f172a;
-      --text-muted: #64748b;
-      --border: #e2e8f0;
-      --bg: #f8fafc;
-      --card: #ffffff;
-      --row-alt: #fcfdfe;
-      --row-hover: #f1f5f9;
-    }
+export const DEFAULT_EXPORT_OPTIONS: ExportOptions = {
+  lang: "ar",
+  dateMode: "date",
+  columns: {
+    serial: true,
+    name: true,
+    federation: true,
+    country: true,
+    code: false,
+    email: false,
+    phone: false,
+  },
+  sortBy: "original",
+  groupByCountry: false,
+  showStats: true,
+  showSearch: true,
+  showPrint: true,
+  showCountryBreakdown: false,
+  showFooterNote: true,
+  footerNote: "",
+  renumberOnFilter: true,
+  pageSize: "a4",
+  orientation: "portrait",
+  density: "comfortable",
+  zebra: true,
+  theme: "navy",
+};
 
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
-
-    body {
-      font-family: 'IBM Plex Sans Arabic', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Tahoma, sans-serif;
-      background-color: var(--bg);
-      color: var(--text-main);
-      line-height: 1.6;
-      padding: 32px 16px;
-      direction: rtl;
-    }
-
-    .container {
-      max-width: 900px;
-      margin: 0 auto;
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05);
-      padding: 32px;
-    }
-
-    .header {
-      border-bottom: 2px solid var(--border);
-      padding-bottom: 20px;
-      margin-bottom: 24px;
-    }
-
-    .meta-badges {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 10px;
-      flex-wrap: wrap;
-    }
-
-    .badge-year {
-      display: inline-block;
-      background: #f1f5f9;
-      color: #334155;
-      font-weight: 700;
-      font-size: 13px;
-      padding: 4px 12px;
-      border-radius: 20px;
-    }
-
-    .badge-count {
-      display: inline-block;
-      background: #ecfdf5;
-      color: var(--primary-dark);
-      font-weight: 700;
-      font-size: 13px;
-      padding: 4px 12px;
-      border-radius: 20px;
-    }
-
-    h1 {
-      font-size: 22px;
-      font-weight: 700;
-      color: var(--text-main);
-      margin-bottom: 8px;
-    }
-
-    .description {
-      font-size: 14px;
-      color: var(--text-muted);
-      margin-top: 6px;
-      line-height: 1.6;
-    }
-
-    .toolbar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-      margin-bottom: 16px;
-      flex-wrap: wrap;
-    }
-
-    .search-box {
-      flex: 1;
-      min-width: 240px;
-      position: relative;
-    }
-
-    .search-input {
-      width: 100%;
-      padding: 10px 14px;
-      border: 1.5px solid var(--border);
-      border-radius: 10px;
-      font-family: inherit;
-      font-size: 14px;
-      outline: none;
-      transition: border-color 0.2s;
-    }
-
-    .search-input:focus {
-      border-color: var(--primary);
-    }
-
-    .table-container {
-      overflow-x: auto;
-      border: 1px solid var(--border);
-      border-radius: 12px;
-    }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 14px;
-      text-align: right;
-    }
-
-    thead th {
-      background: #f8fafc;
-      color: #334155;
-      font-weight: 700;
-      padding: 14px 16px;
-      border-bottom: 2px solid var(--border);
-      white-space: nowrap;
-    }
-
-    thead th.text-center {
-      text-align: center;
-    }
-
-    tbody tr {
-      border-bottom: 1px solid var(--border);
-      transition: background-color 0.15s;
-    }
-
-    tbody tr:nth-child(even) {
-      background-color: var(--row-alt);
-    }
-
-    tbody tr:hover {
-      background-color: var(--row-hover);
-    }
-
-    tbody tr:last-child {
-      border-bottom: none;
-    }
-
-    td {
-      padding: 12px 16px;
-      vertical-align: middle;
-    }
-
-    .num {
-      width: 60px;
-      color: var(--text-muted);
-      font-weight: 600;
-    }
-
-    .text-center {
-      text-align: center;
-    }
-
-    .name-cell {
-      font-weight: 600;
-      color: var(--text-main);
-    }
-
-    .federation-cell {
-      color: #334155;
-    }
-
-    .empty-state {
-      text-align: center;
-      padding: 32px 16px;
-      color: var(--text-muted);
-      font-size: 14px;
-    }
-
-    @media print {
-      body {
-        background: #fff;
-        padding: 0;
-      }
-      .container {
-        border: none;
-        box-shadow: none;
-        padding: 0;
-        max-width: 100%;
-      }
-      .toolbar {
-        display: none !important;
-      }
-    }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <header class="header">
-      <div class="meta-badges">
-        <span class="badge-year">السنة: ${escapeHtml(safeStudy.year)}</span>
-        <span class="badge-count" id="countBadge">${safeParticipants.length} مشارك</span>
-      </div>
-      <h1>${escapeHtml(safeStudy.title)}</h1>
-      ${safeStudy.description ? `<p class="description">${escapeHtml(safeStudy.description)}</p>` : ""}
-    </header>
-
-    <div class="toolbar">
-      <div class="search-box">
-        <input type="text" id="searchInput" class="search-input" placeholder="بحث باسم المشارك أو الاتحاد..." oninput="filterTable()">
-      </div>
-    </div>
-
-    <div class="table-container">
-      <table id="participantsTable">
-        <thead>
-          <tr>
-            <th class="text-center" style="width: 60px;">م</th>
-            <th>اسم المشارك</th>
-            <th>الاتحاد / الجهة</th>
-          </tr>
-        </thead>
-        <tbody id="tableBody">
-          ${rowsHtml || `<tr><td colspan="3" class="empty-state">لا يوجد مشاركون مسجلون في هذه الدراسة</td></tr>`}
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <script>
-    function filterTable() {
-      var query = (document.getElementById('searchInput') ? document.getElementById('searchInput').value : '').trim().toLowerCase();
-      var rows = document.querySelectorAll('#tableBody tr');
-      var visibleCount = 0;
-
-      rows.forEach(function(row) {
-        var nameEl = row.querySelector('.name-cell');
-        var fedEl = row.querySelector('.federation-cell');
-        if (!nameEl && !fedEl) return;
-
-        var name = (nameEl ? nameEl.textContent : '').toLowerCase();
-        var fed = (fedEl ? fedEl.textContent : '').toLowerCase();
-
-        if (name.includes(query) || fed.includes(query)) {
-          row.style.display = '';
-          visibleCount++;
-        } else {
-          row.style.display = 'none';
-        }
-      });
-
-      var badge = document.getElementById('countBadge');
-      if (badge) {
-        badge.textContent = query ? (visibleCount + ' مشارك مطابق') : ('${safeParticipants.length} مشارك');
-      }
-    }
-  </script>
-</body>
-</html>`;
+export function mergeExportOptions(partial?: Partial<ExportOptions> | null): ExportOptions {
+  const base = { ...DEFAULT_EXPORT_OPTIONS, ...(partial ?? {}) };
+  base.columns = { ...DEFAULT_EXPORT_OPTIONS.columns, ...(partial?.columns ?? {}) };
+  return base;
 }
 
-export function downloadStudyReport(
-  study?: Pick<Study, "title" | "year" | "description"> | null,
-  participants: Participant[] = []
-): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    const htmlContent = generateStudyHtmlReport(study, participants);
-    const cleanTitle = (study?.title || "كشف_المشاركين")
-      .replace(/[^\w\u0600-\u06FF\s-]/g, "")
-      .trim()
-      .replace(/\s+/g, "_") || "كشف";
-    const year = study?.year || new Date().getFullYear();
-    const fileName = `كشف_مشاركين_${cleanTitle}_${year}.html`;
+const THEMES: Record<
+  ExportTheme,
+  { navy: string; accent: string; accentSoft: string; ink: string }
+> = {
+  navy: { navy: "#0b2545", accent: "#059669", accentSoft: "#ecfdf5", ink: "#0f172a" },
+  emerald: { navy: "#064e3b", accent: "#10b981", accentSoft: "#ecfdf5", ink: "#0f172a" },
+  slate: { navy: "#1e293b", accent: "#475569", accentSoft: "#f1f5f9", ink: "#0f172a" },
+  burgundy: { navy: "#4c0519", accent: "#be123c", accentSoft: "#fff1f2", ink: "#0f172a" },
+};
 
-    const blob = new Blob([htmlContent], { type: "text/html;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = fileName;
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => {
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    }, 250);
-    return true;
-  } catch (err) {
-    console.error("Export download failed:", err);
-    return false;
+type Labels = {
+  dir: "rtl" | "ltr";
+  roster: string;
+  serial: string;
+  name: string;
+  federation: string;
+  country: string;
+  code: string;
+  email: string;
+  phone: string;
+  date: string;
+  year: string;
+  participants: string;
+  countries: string;
+  federations: string;
+  withEmail: string;
+  searchPh: string;
+  print: string;
+  empty: string;
+  matching: string;
+  breakdown: string;
+  generatedAt: string;
+  defaultTitle: string;
+  defaultNote: string;
+};
+
+function labelsFor(lang: "ar" | "en"): Labels {
+  if (lang === "en") {
+    return {
+      dir: "ltr",
+      roster: "Participant roster",
+      serial: "#",
+      name: "Name",
+      federation: "Federation",
+      country: "Country",
+      code: "File no.",
+      email: "Email",
+      phone: "Phone",
+      date: "Date",
+      year: "Year",
+      participants: "participants",
+      countries: "countries",
+      federations: "federations",
+      withEmail: "with email",
+      searchPh: "Search by name, federation or country...",
+      print: "Print",
+      empty: "No participants registered for this study",
+      matching: "matching participants",
+      breakdown: "Country breakdown",
+      generatedAt: "Generated on",
+      defaultTitle: "Participant roster",
+      defaultNote: "This file is self-contained (HTML + inline CSS) and works offline.",
+    };
   }
+  return {
+    dir: "rtl",
+    roster: "كشف المشاركين",
+    serial: "م",
+    name: "اسم المشارك",
+    federation: "الاتحاد",
+    country: "الدولة",
+    code: "رقم الملف",
+    email: "البريد الإلكتروني",
+    phone: "الهاتف",
+    date: "التاريخ",
+    year: "السنة",
+    participants: "مشارك",
+    countries: "دولة",
+    federations: "اتحاد",
+    withEmail: "لهم بريد إلكتروني",
+    searchPh: "بحث بالاسم أو الاتحاد أو الدولة...",
+    print: "طباعة",
+    empty: "لا يوجد مشاركون مسجلون في هذه الدراسة",
+    matching: "مشارك مطابق",
+    breakdown: "توزيع المشاركين حسب الدولة",
+    generatedAt: "تم إنشاء الملف في",
+    defaultTitle: "كشف المشاركين",
+    defaultNote: "هذا الملف مستقل (HTML مع CSS مدمج) ويعمل بدون إنترنت.",
+  };
 }
 
-// Aliases for compatibility
-export const generateLecturerHtmlReport = generateStudyHtmlReport;
-export const downloadLecturerReport = downloadStudyReport;
-
-function escapeHtml(str: any): string {
+function escapeHtml(str: unknown): string {
   if (str === null || str === undefined) return "";
   return String(str)
     .replace(/&/g, "&amp;")
@@ -350,3 +182,657 @@ function escapeHtml(str: any): string {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 }
+
+type ExportRow = {
+  serial: number;
+  name: string;
+  federation: string;
+  country: string;
+  code: string;
+  email: string;
+  phone: string;
+};
+
+function sortRows(rows: ExportRow[], sortBy: ExportSort, locale = "ar"): ExportRow[] {
+  const copy = [...rows];
+  switch (sortBy) {
+    case "name":
+      copy.sort((a, b) => a.name.localeCompare(b.name, locale));
+      break;
+    case "country":
+      copy.sort(
+        (a, b) =>
+          a.country.localeCompare(b.country, locale) || a.name.localeCompare(b.name, locale),
+      );
+      break;
+    case "federation":
+      copy.sort(
+        (a, b) =>
+          a.federation.localeCompare(b.federation, locale) ||
+          a.name.localeCompare(b.name, locale),
+      );
+      break;
+    default:
+      break;
+  }
+  return copy;
+}
+
+function buildRows(
+  participants: Participant[],
+  options: ExportOptions,
+): ExportRow[] {
+  const safe = Array.isArray(participants) ? participants : [];
+  const rows = safe.map((p, idx) => ({
+    serial: idx + 1,
+    name: (p?.name ?? "").trim() || "—",
+    federation: (p?.federation ?? "").trim(),
+    country: (p?.country ?? "").trim(),
+    code: (p?.code ?? "").trim(),
+    email: (p?.email ?? "").trim(),
+    phone: (p?.phone ?? "").trim(),
+  }));
+
+  const sorted = sortRows(rows, options.sortBy, options.lang === "en" ? "en" : "ar");
+
+  // Localise the country text (and fall back to the federation when a sheet
+  // only carried one of the two).
+  return sorted.map((r, i) => ({
+    ...r,
+    serial: i + 1,
+    country: translateCountry(r.country || r.federation, options.lang),
+    federation: options.lang === "en" ? translateCountry(r.federation, "en") : r.federation,
+  }));
+}
+
+function cellCount(options: ExportOptions): number {
+  const c = options.columns;
+  return (
+    Number(c.serial) +
+    Number(c.name) +
+    Number(c.federation) +
+    Number(c.country) +
+    Number(c.code) +
+    Number(c.email) +
+    Number(c.phone)
+  );
+}
+
+/**
+ * Build the standalone HTML report. Kept side-effect free so it can be used
+ * both for the live preview iframe and for the actual download.
+ */
+export function generateStudyHtmlReport(
+  study?: Pick<Study, "title" | "year" | "description"> | null,
+  participants: Participant[] = [],
+  partialOptions?: Partial<ExportOptions> | null,
+): string {
+  const options = mergeExportOptions(partialOptions);
+  const L = labelsFor(options.lang);
+  const theme = THEMES[options.theme] ?? THEMES.navy;
+
+  const title = (options.title ?? study?.title ?? "").trim() || L.defaultTitle;
+  const description = (options.description ?? study?.description ?? "").trim();
+
+  const rawDate = study?.year ?? "";
+  const dateText =
+    options.dateMode === "hidden"
+      ? ""
+      : formatDate(rawDate, options.lang);
+  const dateLabel = options.dateMode === "year" ? L.year : L.date;
+
+  const rows = buildRows(participants, options);
+  const cols = cellCount(options);
+  const c = options.columns;
+
+  const countries = new Set(rows.map((r) => r.country).filter(Boolean));
+  const federations = new Set(rows.map((r) => r.federation).filter(Boolean));
+  const withEmail = rows.filter((r) => r.email).length;
+
+  const headCells = [
+    c.serial ? `<th class="c-serial text-center">${L.serial}</th>` : "",
+    c.name ? `<th class="c-name">${L.name}</th>` : "",
+    c.federation ? `<th class="c-fed">${L.federation}</th>` : "",
+    c.country ? `<th class="c-country">${L.country}</th>` : "",
+    c.code ? `<th class="c-code text-center">${L.code}</th>` : "",
+    c.email ? `<th class="c-email">${L.email}</th>` : "",
+    c.phone ? `<th class="c-phone">${L.phone}</th>` : "",
+  ]
+    .filter(Boolean)
+    .join("");
+
+  const rowHtml = (r: ExportRow) => {
+    const cells = [
+      c.serial ? `<td class="num text-center serial-cell">${r.serial}</td>` : "",
+      c.name ? `<td class="name-cell">${escapeHtml(r.name)}</td>` : "",
+      c.federation
+        ? `<td class="federation-cell">${escapeHtml(r.federation) || "—"}</td>`
+        : "",
+      c.country
+        ? `<td class="country-cell">${
+            r.country
+              ? `<span class="pill">${escapeHtml(r.country)}</span>`
+              : "—"
+          }</td>`
+        : "",
+      c.code
+        ? `<td class="num text-center code-cell">${escapeHtml(r.code) || "—"}</td>`
+        : "",
+      c.email
+        ? `<td class="num email-cell" dir="ltr">${escapeHtml(r.email) || "—"}</td>`
+        : "",
+      c.phone
+        ? `<td class="num phone-cell" dir="ltr">${escapeHtml(r.phone) || "—"}</td>`
+        : "",
+    ]
+      .filter(Boolean)
+      .join("");
+    return `<tr data-country="${escapeHtml(r.country)}">${cells}</tr>`;
+  };
+
+  let bodyHtml: string;
+  if (rows.length === 0) {
+    bodyHtml = `<tr class="empty-row"><td colspan="${Math.max(cols, 1)}" class="empty-state">${L.empty}</td></tr>`;
+  } else if (options.groupByCountry) {
+    const groups = new Map<string, ExportRow[]>();
+    for (const r of rows) {
+      const key = r.country || "—";
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(r);
+    }
+    bodyHtml = [...groups.entries()]
+      .map(([group, groupRows]) => {
+        const inner = groupRows.map(rowHtml).join("");
+        return `<tr class="group-row"><td colspan="${cols}">${escapeHtml(
+          group,
+        )} <span class="group-count">(${groupRows.length})</span></td></tr>${inner}`;
+      })
+      .join("");
+  } else {
+    bodyHtml = rows.map(rowHtml).join("");
+  }
+
+  const breakdownHtml =
+    options.showCountryBreakdown && rows.length > 0
+      ? (() => {
+          const counts = new Map<string, number>();
+          for (const r of rows) {
+            const key = r.country || "—";
+            counts.set(key, (counts.get(key) ?? 0) + 1);
+          }
+          const max = Math.max(...counts.values());
+          const items = [...counts.entries()]
+            .sort((a, b) => b[1] - a[1])
+            .map(([name, n]) => {
+              const pct = max > 0 ? Math.round((n / max) * 100) : 0;
+              return `<li>
+                <span class="bd-name">${escapeHtml(name)}</span>
+                <span class="bd-bar"><span style="width:${pct}%"></span></span>
+                <span class="bd-num num">${n}</span>
+              </li>`;
+            })
+            .join("");
+          return `<section class="breakdown">
+            <h2>${L.breakdown}</h2>
+            <ul>${items}</ul>
+          </section>`;
+        })()
+      : "";
+
+  const statsHtml = options.showStats
+    ? `<div class="stats">
+        <div class="stat"><b class="num">${rows.length}</b><span>${L.participants}</span></div>
+        <div class="stat"><b class="num">${countries.size}</b><span>${L.countries}</span></div>
+        <div class="stat"><b class="num">${federations.size}</b><span>${L.federations}</span></div>
+        ${
+          c.email
+            ? `<div class="stat"><b class="num">${withEmail}</b><span>${L.withEmail}</span></div>`
+            : ""
+        }
+      </div>`
+    : "";
+
+  const toolbarHtml =
+    options.showSearch || options.showPrint
+      ? `<div class="toolbar no-print">
+          ${
+            options.showSearch
+              ? `<div class="search-box">
+                  <input type="search" id="searchInput" class="search-input" placeholder="${L.searchPh}" autocomplete="off">
+                </div>`
+              : `<div class="search-box"></div>`
+          }
+          ${
+            options.showPrint
+              ? `<button type="button" class="print-btn" onclick="window.print()">${L.print}</button>`
+              : ""
+          }
+        </div>`
+      : "";
+
+  const footerNote = options.showFooterNote
+    ? options.footerNote.trim() || L.defaultNote
+    : "";
+
+  const scriptConfig = JSON.stringify({
+    renumber: options.renumberOnFilter,
+    total: rows.length,
+    totalLabel: L.participants,
+    matchingLabel: L.matching,
+  });
+
+  return `<!DOCTYPE html>
+<html lang="${options.lang}" dir="${L.dir}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escapeHtml(title)} — ${L.roster}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@600;700;800;900&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --navy: ${theme.navy};
+      --navy-soft: ${theme.navy}14;
+      --accent: ${theme.accent};
+      --accent-soft: ${theme.accentSoft};
+      --ink: ${theme.ink};
+      --muted: #64748b;
+      --border: #e2e8f0;
+      --bg: #f6f8fb;
+      --card: #ffffff;
+      --row-alt: #fbfcfe;
+      --row-hover: #f1f5f9;
+      --pad-y: ${options.density === "compact" ? "7px" : "12px"};
+      --pad-x: ${options.density === "compact" ? "10px" : "16px"};
+      --font-size: ${options.density === "compact" ? "13px" : "14.5px"};
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { -webkit-text-size-adjust: 100%; }
+
+    body {
+      font-family: 'IBM Plex Sans Arabic', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Tahoma, sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.7;
+      padding: 28px 14px 48px;
+      direction: ${L.dir};
+      overflow-y: auto;
+    }
+
+    .sheet {
+      max-width: ${options.orientation === "landscape" ? "1180px" : "940px"};
+      margin: 0 auto;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      box-shadow: 0 10px 30px -18px rgba(15, 23, 42, 0.35);
+      padding: 30px 26px 26px;
+    }
+
+    /* ---------- Document header (centred, navy, display font) ---------- */
+    .doc-head { text-align: center; padding-bottom: 20px; border-bottom: 2px solid var(--border); }
+
+    .meta-badges {
+      display: flex; align-items: center; justify-content: center;
+      gap: 8px; flex-wrap: wrap; margin-bottom: 14px;
+    }
+    .badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: #f1f5f9; color: #334155;
+      font-weight: 700; font-size: 12.5px; padding: 5px 14px; border-radius: 999px;
+    }
+    .badge.accent { background: var(--accent-soft); color: var(--accent); }
+    .badge.navy { background: var(--navy-soft); color: var(--navy); }
+
+    h1 {
+      font-family: 'Cairo', 'IBM Plex Sans Arabic', 'Segoe UI', Tahoma, sans-serif;
+      font-size: clamp(24px, 3.6vw, 36px);
+      font-weight: 800;
+      line-height: 1.45;
+      color: var(--navy);
+      text-align: center;
+      margin: 0 auto 10px;
+      max-width: 92%;
+      letter-spacing: 0;
+    }
+
+    .title-rule {
+      width: 96px; height: 4px; border-radius: 999px; margin: 0 auto 14px;
+      background: linear-gradient(90deg, var(--accent), var(--navy));
+    }
+
+    .description {
+      font-size: 14px; color: var(--muted);
+      max-width: 760px; margin: 0 auto; text-align: center; line-height: 1.9;
+    }
+
+    .stats {
+      display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 18px;
+    }
+    .stat {
+      display: flex; align-items: baseline; gap: 7px;
+      border: 1px solid var(--border); border-radius: 999px;
+      padding: 6px 16px; background: #fff;
+    }
+    .stat b { font-size: 16px; color: var(--navy); }
+    .stat span { font-size: 12px; color: var(--muted); font-weight: 600; }
+
+    /* ---------- Toolbar ---------- */
+    .toolbar { display: flex; align-items: center; gap: 12px; margin: 22px 0 14px; flex-wrap: wrap; }
+    .search-box { flex: 1; min-width: 220px; }
+    .search-input {
+      width: 100%; padding: 10px 14px; border: 1.5px solid var(--border);
+      border-radius: 12px; font-family: inherit; font-size: 14px; outline: none;
+      background: #fff; color: var(--ink); transition: border-color .18s, box-shadow .18s;
+    }
+    .search-input:focus { border-color: var(--accent); box-shadow: 0 0 0 4px ${theme.accent}1f; }
+    .print-btn {
+      border: 1.5px solid var(--border); background: #fff; color: var(--navy);
+      font-family: inherit; font-weight: 700; font-size: 13px;
+      padding: 10px 18px; border-radius: 12px; cursor: pointer;
+    }
+    .print-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* ---------- Table ---------- */
+    .table-wrap { overflow: auto; border: 1px solid var(--border); border-radius: 14px; max-height: none; }
+    table { width: 100%; border-collapse: collapse; font-size: var(--font-size); text-align: ${L.dir === "rtl" ? "right" : "left"}; }
+    thead th {
+      position: sticky; top: 0; z-index: 2;
+      background: var(--navy); color: #fff; font-weight: 700; font-size: 13px;
+      padding: 12px var(--pad-x); white-space: nowrap; text-align: ${L.dir === "rtl" ? "right" : "left"};
+    }
+    thead th.text-center { text-align: center; }
+    tbody tr { border-bottom: 1px solid var(--border); }
+    tbody tr:last-child { border-bottom: none; }
+    ${options.zebra ? "tbody tr.data-row:nth-child(even), tbody tr:nth-of-type(even) { background: var(--row-alt); }" : ""}
+    tbody tr:hover { background: var(--row-hover); }
+    td { padding: var(--pad-y) var(--pad-x); vertical-align: middle; }
+    .num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+    .text-center { text-align: center; }
+    .name-cell { font-weight: 700; color: var(--ink); }
+    .federation-cell, .country-cell { color: #334155; font-weight: 500; }
+    .serial-cell { color: var(--muted); font-weight: 700; width: 56px; }
+    .c-serial { width: 56px; text-align: center; }
+    .code-cell { color: var(--navy); font-weight: 700; }
+    .email-cell, .phone-cell { color: var(--muted); font-size: 12.5px; }
+    .pill {
+      display: inline-block; background: var(--accent-soft); color: var(--accent);
+      border-radius: 999px; padding: 3px 12px; font-size: 12px; font-weight: 700; white-space: nowrap;
+    }
+    .group-row td {
+      background: #f8fafc; color: var(--navy); font-weight: 800; font-size: 13px;
+      padding: 9px var(--pad-x); border-bottom: 1px solid var(--border);
+    }
+    .group-count { color: var(--muted); font-weight: 600; }
+    .empty-state { text-align: center; padding: 34px 16px; color: var(--muted); font-size: 14px; }
+
+    /* ---------- Country breakdown ---------- */
+    .breakdown { margin-top: 22px; border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; }
+    .breakdown h2 { font-size: 14px; color: var(--navy); margin-bottom: 12px; font-weight: 800; }
+    .breakdown ul { list-style: none; display: grid; gap: 8px; }
+    .breakdown li { display: grid; grid-template-columns: minmax(90px, 160px) 1fr 42px; align-items: center; gap: 10px; }
+    .bd-name { font-size: 12.5px; font-weight: 700; color: #334155; }
+    .bd-bar { display: block; height: 8px; background: #eef2f7; border-radius: 999px; overflow: hidden; }
+    .bd-bar span { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--navy)); border-radius: 999px; }
+    .bd-num { font-size: 12.5px; font-weight: 800; color: var(--navy); text-align: ${L.dir === "rtl" ? "left" : "right"}; }
+
+    .doc-footer {
+      margin-top: 20px; padding-top: 14px; border-top: 1px dashed var(--border);
+      display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between;
+      font-size: 11.5px; color: var(--muted);
+    }
+
+    @media (max-width: 640px) {
+      body { padding: 14px 8px 32px; }
+      .sheet { padding: 20px 12px 18px; border-radius: 14px; }
+      h1 { font-size: 22px; max-width: 100%; }
+      .breakdown li { grid-template-columns: minmax(70px, 110px) 1fr 34px; }
+    }
+
+    @page { size: ${options.pageSize === "auto" ? "auto" : `${options.pageSize} ${options.orientation}`}; margin: 12mm; }
+
+    @media print {
+      body { background: #fff; padding: 0; }
+      .sheet { border: none; box-shadow: none; padding: 0; max-width: 100%; border-radius: 0; }
+      .no-print { display: none !important; }
+      thead th { position: static; }
+      tbody tr { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <div class="sheet">
+    <header class="doc-head">
+      <div class="meta-badges">
+        ${dateText ? `<span class="badge navy">${dateLabel}: <b class="num">${escapeHtml(dateText)}</b></span>` : ""}
+        <span class="badge accent" id="countBadge"><b class="num">${rows.length}</b> ${L.participants}</span>
+        ${countries.size ? `<span class="badge"><b class="num">${countries.size}</b> ${L.countries}</span>` : ""}
+      </div>
+
+      <h1>${escapeHtml(title)}</h1>
+      <div class="title-rule"></div>
+      ${description ? `<p class="description">${escapeHtml(description)}</p>` : ""}
+
+      ${statsHtml}
+    </header>
+
+    ${toolbarHtml}
+
+    <div class="table-wrap">
+      <table id="participantsTable">
+        <thead><tr>${headCells}</tr></thead>
+        <tbody id="tableBody">${bodyHtml}</tbody>
+      </table>
+    </div>
+
+    ${breakdownHtml}
+
+    ${
+      footerNote
+        ? `<footer class="doc-footer"><span>${escapeHtml(footerNote)}</span><span>${
+            L.generatedAt
+          } ${escapeHtml(new Date().toLocaleDateString(options.lang === "en" ? "en-GB" : "ar-EG"))}</span></footer>`
+        : ""
+    }
+  </div>
+
+  <script>
+    (function () {
+      var CFG = ${scriptConfig};
+      var input = document.getElementById('searchInput');
+      var badge = document.getElementById('countBadge');
+      if (!input) return;
+
+      function apply() {
+        var q = (input.value || '').trim().toLowerCase();
+        var rows = Array.prototype.slice.call(document.querySelectorAll('#tableBody tr'));
+        var visible = 0;
+
+        rows.forEach(function (row) {
+          if (row.classList.contains('group-row') || row.classList.contains('empty-row')) return;
+          var text = (row.textContent || '').toLowerCase();
+          var country = (row.getAttribute('data-country') || '').toLowerCase();
+          var hit = !q || text.indexOf(q) !== -1 || country.indexOf(q) !== -1;
+          row.style.display = hit ? '' : 'none';
+          if (hit) {
+            visible++;
+            if (CFG.renumber) {
+              var cell = row.querySelector('.serial-cell');
+              if (cell) cell.textContent = visible;
+            }
+          }
+        });
+
+        if (badge) {
+          badge.innerHTML = q
+            ? '<b class="num">' + visible + '</b> ' + CFG.matchingLabel
+            : '<b class="num">' + CFG.total + '</b> ' + CFG.totalLabel;
+        }
+      }
+
+      input.addEventListener('input', apply);
+    })();
+  </script>
+</body>
+</html>`;
+}
+
+/* ------------------------------------------------------------------ *
+ * Download helpers
+ * ------------------------------------------------------------------ */
+
+export function buildExportFileName(
+  study?: Pick<Study, "title" | "year"> | null,
+  options?: Partial<ExportOptions> | null,
+): string {
+  const opts = mergeExportOptions(options);
+  const custom = (opts.fileName ?? "").trim();
+  const base =
+    custom ||
+    (study?.title || (opts.lang === "en" ? "participants" : "كشف_المشاركين"))
+      .replace(/[^\w\u0600-\u06FF\s-]/g, "")
+      .trim()
+      .replace(/\s+/g, "_");
+
+  const stamp = toDateInputValue(study?.year ?? "") || todayStamp();
+  const safeBase = (base || "roster").slice(0, 80);
+  return `${safeBase}_${stamp}.html`;
+}
+
+function todayStamp(): string {
+  const now = new Date();
+  const off = now.getTimezoneOffset();
+  return new Date(now.getTime() - off * 60_000).toISOString().slice(0, 10);
+}
+
+/**
+ * Trigger a real browser download. Deliberately defensive: object URLs are
+ * released late (some browsers abort the transfer when the URL dies too soon)
+ * and every failure path returns false so callers can show feedback.
+ */
+export function downloadStudyReport(
+  study?: Pick<Study, "title" | "year" | "description"> | null,
+  participants: Participant[] = [],
+  partialOptions?: Partial<ExportOptions> | null,
+): boolean {
+  if (typeof window === "undefined") return false;
+
+  const options = mergeExportOptions(partialOptions);
+
+  try {
+    const htmlContent = generateStudyHtmlReport(study, participants, options);
+    const fileName = buildExportFileName(study, options);
+
+    // iOS Safari ignores `download` on blob URLs inside iframes but works from
+    // the top-level document, so always create the anchor on document.body.
+    const blob = new Blob(["\uFEFF", htmlContent], { type: "text/html;charset=utf-8" });
+
+    if (typeof URL === "undefined" || !URL.createObjectURL) {
+      return openDataUrl(htmlContent);
+    }
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName;
+    a.rel = "noopener";
+    a.target = "_self";
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+
+    window.setTimeout(() => {
+      if (a.parentNode) a.parentNode.removeChild(a);
+    }, 0);
+    // Keep the URL alive long enough for slow downloads to start.
+    window.setTimeout(() => {
+      try {
+        URL.revokeObjectURL(url);
+      } catch {
+        /* noop */
+      }
+    }, 30_000);
+
+    return true;
+  } catch (err) {
+    console.error("Export download failed:", err);
+    return false;
+  }
+}
+
+function openDataUrl(html: string): boolean {
+  try {
+    const win = window.open();
+    if (!win) return false;
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Open the generated report in a new tab (fallback when downloads are blocked). */
+export function openStudyReport(
+  study?: Pick<Study, "title" | "year" | "description"> | null,
+  participants: Participant[] = [],
+  partialOptions?: Partial<ExportOptions> | null,
+): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const html = generateStudyHtmlReport(study, participants, partialOptions);
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const win = window.open(url, "_blank", "noopener");
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    return Boolean(win);
+  } catch (err) {
+    console.error("Open report failed:", err);
+    return false;
+  }
+}
+
+/** Print the report from a hidden iframe without navigating away. */
+export function printStudyReport(
+  study?: Pick<Study, "title" | "year" | "description"> | null,
+  participants: Participant[] = [],
+  partialOptions?: Partial<ExportOptions> | null,
+): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const html = generateStudyHtmlReport(study, participants, partialOptions);
+    const frame = document.createElement("iframe");
+    frame.setAttribute("aria-hidden", "true");
+    frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;opacity:0;";
+    document.body.appendChild(frame);
+
+    const doc = frame.contentDocument;
+    if (!doc) return false;
+    doc.open();
+    doc.write(html);
+    doc.close();
+
+    const run = () => {
+      try {
+        frame.contentWindow?.focus();
+        frame.contentWindow?.print();
+      } finally {
+        window.setTimeout(() => frame.remove(), 1500);
+      }
+    };
+    // Give the document a tick to settle so fonts/layout are ready.
+    window.setTimeout(run, 250);
+    return true;
+  } catch (err) {
+    console.error("Print failed:", err);
+    return false;
+  }
+}
+
+// Aliases kept for backwards compatibility with existing imports.
+export const generateLecturerHtmlReport = generateStudyHtmlReport;
+export const downloadLecturerReport = downloadStudyReport;

@@ -11,22 +11,24 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const body = await req.json();
+  const body = await req.json().catch(() => ({}));
   const title = (body.title ?? "").toString().trim();
   const year = (body.year ?? "").toString().trim();
   const description = (body.description ?? "").toString().trim() || null;
   const status = (body.status ?? "active").toString() || "active";
+  const titleEn = (body.titleEn ?? "").toString().trim() || null;
+  const descriptionEn = (body.descriptionEn ?? "").toString().trim() || null;
 
   if (!title || !year) {
     return NextResponse.json(
-      { error: "Title and year are required" },
+      { error: "Title and date are required" },
       { status: 400 },
     );
   }
 
   const [study] = await db
     .insert(studies)
-    .values({ title, year, description, status })
+    .values({ title, year, description, status, titleEn, descriptionEn })
     .returning();
 
   return NextResponse.json({ ...study, participantCount: 0 }, { status: 201 });
