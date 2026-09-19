@@ -1,5 +1,3 @@
-import * as XLSX from "xlsx";
-import * as mammoth from "mammoth";
 import { normalizeAr } from "./content";
 
 /* ------------------------------------------------------------------ *
@@ -95,10 +93,10 @@ export { ARAB_COUNTRIES };
 export async function parseFile(file: File): Promise<ParsedTable> {
   const name = file.name.toLowerCase();
 
-  // Binary spreadsheets: let SheetJS read the bytes.
+  // Binary spreadsheets: dynamically load SheetJS to read the bytes.
   if (name.endsWith(".xlsx") || name.endsWith(".xls") || name.endsWith(".ods")) {
     const arrayBuffer = await file.arrayBuffer();
-    return parseSpreadsheetBuffer(arrayBuffer);
+    return await parseSpreadsheetBuffer(arrayBuffer);
   }
 
   // Delimited text must be decoded by the browser as UTF-8. Handing the raw
@@ -115,7 +113,7 @@ export async function parseFile(file: File): Promise<ParsedTable> {
 
   if (name.endsWith(".docx")) {
     const arrayBuffer = await file.arrayBuffer();
-    return parseDocxBuffer(arrayBuffer);
+    return await parseDocxBuffer(arrayBuffer);
   }
 
   if (name.endsWith(".doc")) {
@@ -172,7 +170,10 @@ function needsFallbackDecoding(text: string): boolean {
   return latin1Supplement > 4;
 }
 
-export function parseSpreadsheetBuffer(buffer: ArrayBuffer | ArrayBufferView): ParsedTable {
+export async function parseSpreadsheetBuffer(
+  buffer: ArrayBuffer | ArrayBufferView,
+): Promise<ParsedTable> {
+  const XLSX = await import("xlsx");
   const u8 = ArrayBuffer.isView(buffer)
     ? new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
     : new Uint8Array(buffer);
@@ -198,6 +199,7 @@ export function parseSpreadsheetBuffer(buffer: ArrayBuffer | ArrayBufferView): P
 export async function parseDocxBuffer(
   buffer: ArrayBuffer | ArrayBufferView,
 ): Promise<ParsedTable> {
+  const mammoth = await import("mammoth");
   const u8 = ArrayBuffer.isView(buffer)
     ? new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
     : new Uint8Array(buffer);

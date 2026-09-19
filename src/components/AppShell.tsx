@@ -29,11 +29,13 @@ function AcademicLogo({ size = 22 }: { size?: number }) {
 function LangSwitch({ compact = false }: { compact?: boolean }) {
   const { lang, setLang } = useLang();
 
-  const base = compact ? "px-2.5 py-1 text-xs" : "py-1.5 text-xs";
+  const base = compact
+    ? "px-3 py-1.5 min-h-[36px] text-xs"
+    : "py-2 min-h-[40px] text-xs";
 
   return (
     <div
-      className="flex rounded-full bg-[var(--bg)] p-0.5"
+      className="flex items-center rounded-full bg-[var(--bg)] p-0.5"
       role="group"
       aria-label="Language / اللغة"
     >
@@ -41,7 +43,7 @@ function LangSwitch({ compact = false }: { compact?: boolean }) {
         type="button"
         onClick={() => setLang("ar")}
         aria-pressed={lang === "ar"}
-        className={`flex-1 rounded-full font-bold transition ${base} ${
+        className={`inline-flex flex-1 items-center justify-center rounded-full font-bold transition ${base} ${
           lang === "ar"
             ? "bg-white text-[var(--accent-strong)] shadow-xs"
             : "text-[var(--text-tertiary)] hover:text-[var(--text)]"
@@ -53,7 +55,7 @@ function LangSwitch({ compact = false }: { compact?: boolean }) {
         type="button"
         onClick={() => setLang("en")}
         aria-pressed={lang === "en"}
-        className={`flex-1 rounded-full font-bold transition ${base} ${
+        className={`inline-flex flex-1 items-center justify-center rounded-full font-bold transition ${base} ${
           lang === "en"
             ? "bg-white text-[var(--accent-strong)] shadow-xs"
             : "text-[var(--text-tertiary)] hover:text-[var(--text)]"

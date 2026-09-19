@@ -13,12 +13,25 @@ export function senderInfo() {
   };
 }
 
+function escapeHtml(str: unknown): string {
+  if (str === null || str === undefined) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 export function buildEmailHtml(opts: {
   studyTitle: string;
   year: string;
   message: string;
 }): string {
-  const { studyTitle, year, message } = opts;
+  const studyTitle = escapeHtml(opts.studyTitle);
+  const year = escapeHtml(opts.year);
+  // Convert newlines in user message to <br> while strictly escaping HTML tags
+  const message = escapeHtml(opts.message).replace(/\n/g, "<br>");
   return `<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
