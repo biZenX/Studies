@@ -123,6 +123,7 @@ function hydrateStudy(row: any): Study {
     id: Number(row?.id) || 0,
     title: String(row?.title ?? ""),
     year: String(row?.year ?? ""),
+    endDate: row?.endDate ? String(row.endDate) : null,
     description: row?.description ?? null,
     status: String(row?.status ?? "active"),
     titleEn: row?.titleEn ?? null,
@@ -179,6 +180,7 @@ export function initializeLocalStorage(): {
         id: 1,
         title: DEFAULT_STUDY.title,
         year: DEFAULT_STUDY.year,
+        endDate: DEFAULT_STUDY.endDate,
         description: DEFAULT_STUDY.description,
         status: DEFAULT_STUDY.status,
         titleEn: DEFAULT_STUDY.titleEn,
@@ -316,7 +318,10 @@ export function getLocalStudyDetail(id: number): {
 export function saveLocalStudy(data: {
   id?: number;
   title: string;
+  /** Start date of the study period. */
   year: string;
+  /** End date of the period — null/"" keeps the study open-ended. */
+  endDate?: string | null;
   description?: string | null;
   status?: string;
   titleEn?: string | null;
@@ -324,6 +329,7 @@ export function saveLocalStudy(data: {
 }): Study {
   const { studies } = initializeLocalStorage();
   let savedStudy: Study;
+  const endDate = data.endDate ? String(data.endDate) : null;
 
   if (data.id) {
     const idx = studies.findIndex((s) => s.id === data.id);
@@ -332,6 +338,8 @@ export function saveLocalStudy(data: {
         ...studies[idx],
         title: data.title,
         year: data.year,
+        // `undefined` = caller did not touch the field; null/"" = cleared.
+        endDate: data.endDate === undefined ? (studies[idx].endDate ?? null) : endDate,
         description: data.description ?? null,
         status: data.status ?? studies[idx].status,
         titleEn: data.titleEn ?? studies[idx].titleEn ?? null,
@@ -343,6 +351,7 @@ export function saveLocalStudy(data: {
         id: data.id,
         title: data.title,
         year: data.year,
+        endDate,
         description: data.description ?? null,
         status: data.status ?? "active",
         titleEn: data.titleEn ?? null,
@@ -357,6 +366,7 @@ export function saveLocalStudy(data: {
       id: nextId,
       title: data.title,
       year: data.year,
+      endDate,
       description: data.description ?? null,
       status: data.status ?? "active",
       titleEn: data.titleEn ?? null,
@@ -557,6 +567,7 @@ async function syncStudyWithServer(study: Study) {
       body: JSON.stringify({
         title: study.title,
         year: study.year,
+        endDate: study.endDate ?? null,
         description: study.description,
         status: study.status,
         titleEn: study.titleEn,

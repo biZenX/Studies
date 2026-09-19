@@ -44,3 +44,50 @@ export function useMounted(): boolean {
     () => false,
   );
 }
+
+/* ------------------------------------------------------------------ *
+ * Today's date (ISO, local time)
+ *
+ * Study statuses are derived from the date range, so every screen needs
+ * "today". It is read through an external store so that:
+ *   - the server snapshot is "" (statuses fall back to the stored value and
+ *     the markup matches on hydration, whatever the server's timezone), and
+ *   - the value refreshes by itself when midnight passes while a tab is
+ *     open, flipping an "active" study to "completed" without a reload.
+ * ------------------------------------------------------------------ */
+
+function localIsoToday(): string {
+  const now = new Date();
+  const off = now.getTimezoneOffset();
+  return new Date(now.getTime() - off * 60_000).toISOString().slice(0, 10);
+}
+
+const todayListeners = new Set<() => void>();
+let todayTimer: ReturnType<typeof setInterval> | null = null;
+let lastToday = "";
+
+function subscribeToday(onChange: () => void) {
+  todayListeners.add(onChange);
+  if (typeof window !== "undefined" && !todayTimer) {
+    lastToday = localIsoToday();
+    todayTimer = setInterval(() => {
+      const next = localIsoToday();
+      if (next !== lastToday) {
+        lastToday = next;
+        todayListeners.forEach((fn) => fn());
+      }
+    }, 30_000);
+  }
+  return () => {
+    todayListeners.delete(onChange);
+    if (todayListeners.size === 0 && todayTimer) {
+      clearInterval(todayTimer);
+      todayTimer = null;
+    }
+  };
+}
+
+/** `YYYY-MM-DD` in the browser's local time; "" during SSR/hydration. */
+export function useToday(): string {
+  return useSyncExternalStore(subscribeToday, localIsoToday, () => "");
+}

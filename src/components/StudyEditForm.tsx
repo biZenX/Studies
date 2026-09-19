@@ -5,23 +5,33 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useLang } from "./lang";
 import { useToast } from "./toast";
-import { Field, IconBack, IconCheckCircle, Spinner, StatusBadge } from "./ui";
-import { useMounted } from "./useMediaQuery";
-import { formatDate, isIsoDate, toDateInputValue } from "@/lib/content";
+import { IconBack, IconCheckCircle, Spinner, StatusBadge } from "./ui";
+import { useMounted, useToday } from "./useMediaQuery";
+import {
+  StudyFormActions,
+  StudyFormFields,
+  focusFirstError,
+  isStudyFormDirty,
+  normalizeStudyForm,
+  studyToForm,
+  validateStudyForm,
+  type StudyFormData,
+  type StudyFormErrors,
+} from "./StudyForm";
+import { formatDateRange } from "@/lib/content";
+import { resolveStudyStatus, scheduleHint } from "@/domain/studySchedule";
 import type { StudyWithCount } from "@/lib/types";
 import { getStudySnapshot, saveLocalStudy, subscribeStorage } from "@/lib/storage";
 
 const NO_PARTICIPANTS: never[] = [];
+const ID_PREFIX = "study-edit";
 
-type FormState = {
-  title: string;
-  titleEn: string;
-  year: string;
-  description: string;
-  descriptionEn: string;
-  status: string;
-};
-
+/**
+ * `/studies/:id/edit` — full-page variant of the study form.
+ *
+ * It renders exactly the same fields and validation as the popup
+ * (`StudyModal`), so both ways of editing behave identically.
+ */
 export function StudyEditForm({
   studyId,
   initialStudy,
@@ -33,6 +43,7 @@ export function StudyEditForm({
   const router = useRouter();
   const toast = useToast();
   const mounted = useMounted();
+  const today = useToday();
 
   const serverSnapshot = useMemo(
     () => ({ study: initialStudy ?? null, participants: NO_PARTICIPANTS }),
@@ -54,66 +65,57 @@ export function StudyEditForm({
   const study = snapshot.study;
   const participantCount = snapshot.study ? snapshot.participants.length : 0;
 
-  const [form, setForm] = useState<FormState | null>(null);
+  const [form, setForm] = useState<StudyFormData | null>(null);
+  const [baseline, setBaseline] = useState<StudyFormData | null>(null);
   const [seededFor, setSeededFor] = useState<number | null>(null);
+  const [errors, setErrors] = useState<StudyFormErrors>({});
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
   const [touched, setTouched] = useState(false);
 
   // Seed the form once, during render, as soon as the record is known. Doing
   // this in an effect would flash an empty form and cascade extra renders.
   if (study && seededFor !== study.id && !touched) {
     setSeededFor(study.id);
-    setForm({
-      title: study.title ?? "",
-      titleEn: study.titleEn ?? "",
-      year: study.year ?? "",
-      description: study.description ?? "",
-      descriptionEn: study.descriptionEn ?? "",
-      status: study.status ?? "active",
-    });
+    const seeded = studyToForm(study);
+    setForm(seeded);
+    setBaseline(seeded);
   }
 
-  const dateValue = useMemo(() => toDateInputValue(form?.year), [form?.year]);
-  const legacyYear = Boolean(form?.year) && !isIsoDate(form?.year);
+  const dirty = form && baseline ? isStudyFormDirty(form, baseline) : false;
 
-  const update = (patch: Partial<FormState>) => {
+  const update = (patch: Partial<StudyFormData>) => {
     setTouched(true);
     setForm((prev) => (prev ? { ...prev, ...patch } : prev));
-    if (error) setError("");
+    const touchedKeys = Object.keys(patch) as (keyof StudyFormErrors)[];
+    if (touchedKeys.some((k) => errors[k])) {
+      setErrors((prev) => {
+        const next = { ...prev };
+        touchedKeys.forEach((k) => delete next[k]);
+        return next;
+      });
+    }
   };
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form) return;
+    if (!form || saving) return;
 
-    if (!form.title.trim()) {
-      setError(t("missingFields"));
-      return;
-    }
-    if (!form.year || !toDateInputValue(form.year)) {
-      setError(lang === "en" ? "Please pick a date" : "يرجى اختيار التاريخ");
+    const nextErrors = validateStudyForm(form, t);
+    if (Object.keys(nextErrors).length > 0) {
+      setErrors(nextErrors);
+      focusFirstError(nextErrors, ID_PREFIX);
       return;
     }
 
     setSaving(true);
     try {
-      const saved = saveLocalStudy({
-        id: studyId,
-        title: form.title.trim(),
-        year: toDateInputValue(form.year) || form.year.trim(),
-        description: form.description.trim(),
-        status: form.status,
-        titleEn: form.titleEn.trim(),
-        descriptionEn: form.descriptionEn.trim(),
-      });
-      void saved;
+      const payload = normalizeStudyForm(form);
+      saveLocalStudy({ ...payload, id: studyId });
       toast.success(t("studyUpdated"));
       router.push(`/studies/${studyId}`);
     } catch (err) {
       console.error("Save failed:", err);
-      setError(err instanceof Error ? err.message : String(err));
-      toast.error(t("exportFailed"));
+      toast.error(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
     }
@@ -130,7 +132,7 @@ export function StudyEditForm({
             <div className="mx-auto mt-3 h-3 w-72 max-w-full rounded-full bg-white" />
           </div>
           <div className="space-y-4 px-5 py-6 sm:px-7">
-            {Array.from({ length: 5 }).map((_, i) => (
+            {Array.from({ length: 6 }).map((_, i) => (
               <div key={i} className="h-11 rounded-xl bg-[var(--bg)]" />
             ))}
           </div>
@@ -157,6 +159,9 @@ export function StudyEditForm({
     );
   }
 
+  const effective = resolveStudyStatus(study, today);
+  const hint = scheduleHint(study, today, lang);
+
   return (
     <div className="animate-fade-up pb-12">
       <Link
@@ -170,7 +175,12 @@ export function StudyEditForm({
       <div className="card overflow-hidden">
         <div className="border-b border-[var(--border)] bg-[var(--bg)]/60 px-5 py-5 text-center sm:px-7">
           <div className="mb-2 flex flex-wrap items-center justify-center gap-2">
-            <StatusBadge status={form.status} label={t(form.status)} />
+            <StatusBadge status={effective} label={t(effective)} />
+            {hint && (
+              <span className="num rounded-full bg-white px-3 py-1 text-xs font-bold text-[var(--text-secondary)]">
+                {hint}
+              </span>
+            )}
             <span className="num rounded-full bg-white px-3 py-1 text-xs font-bold text-[var(--text-secondary)]">
               {participantCount} {t("participants")}
             </span>
@@ -178,104 +188,52 @@ export function StudyEditForm({
           <h1 className="doc-title text-xl sm:text-2xl lg:text-3xl">{t("editStudyPage")}</h1>
           <div className="doc-title-rule" />
           <p className="mx-auto mt-3 max-w-xl text-xs leading-relaxed text-[var(--text-secondary)] sm:text-sm">
-            {t("editStudyPageSub")}
+            {study.year && (
+              <span className="num block font-bold text-[var(--navy)]">
+                {formatDateRange(study.year, study.endDate, lang)}
+              </span>
+            )}
+            {t("editStudySub")}
           </p>
         </div>
 
-        <form onSubmit={submit} className="space-y-5 px-4 py-5 sm:px-7 sm:py-6">
-          <Field label={t("studyTitle")} required>
-            <input
-              className="input"
-              value={form.title}
-              onChange={(e) => update({ title: e.target.value })}
-              placeholder={t("studyTitlePh")}
-              data-testid="study-title-input"
-              autoFocus
+        <form
+          onSubmit={submit}
+          onKeyDown={(e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+              e.preventDefault();
+              (e.currentTarget as HTMLFormElement).requestSubmit();
+            }
+          }}
+          className="px-4 py-5 sm:px-7 sm:py-6"
+          noValidate
+        >
+          <StudyFormFields
+            form={form}
+            errors={errors}
+            onChange={update}
+            idPrefix={ID_PREFIX}
+            autoFocusTitle={false}
+          />
+
+          <div className="mt-6 border-t border-[var(--border)] pt-4">
+            <StudyFormActions
+              onCancel={() => router.push(`/studies/${studyId}`)}
+              saving={saving}
+              saveLabel={t("saveChanges")}
+              savingLabel={t("savingChanges")}
+              cancelLabel={t("cancel")}
+              shortcutHint={t("saveShortcut")}
+              saveIcon={<IconCheckCircle size={16} />}
+              extra={
+                dirty ? (
+                  <span className="flex items-center gap-1.5 text-amber-600">
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                    {t("unsavedChanges")}
+                  </span>
+                ) : null
+              }
             />
-          </Field>
-
-          <Field label={t("studyTitleEn")}>
-            <input
-              className="input"
-              dir="ltr"
-              value={form.titleEn}
-              onChange={(e) => update({ titleEn: e.target.value })}
-              placeholder="Shown when the interface language is English"
-              data-testid="study-title-en-input"
-            />
-          </Field>
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label={t("date")} required>
-              <input
-                type="date"
-                className="input num"
-                value={dateValue}
-                onChange={(e) => update({ year: e.target.value })}
-                data-testid="study-date-input"
-              />
-              {dateValue && (
-                <span className="mt-1 block text-[11px] font-semibold text-[var(--text-tertiary)]">
-                  {formatDate(dateValue, lang)}
-                </span>
-              )}
-              {legacyYear && (
-                <span className="mt-1 block text-[11px] font-semibold text-amber-600">
-                  القيمة المحفوظة «{form.year}» — اختر التاريخ الكامل لتحديثها.
-                </span>
-              )}
-            </Field>
-
-            <Field label={t("status")}>
-              <select
-                className="input"
-                value={form.status}
-                onChange={(e) => update({ status: e.target.value })}
-                data-testid="study-status-select"
-              >
-                <option value="active">{t("active")}</option>
-                <option value="draft">{t("draft")}</option>
-                <option value="closed">{t("closed")}</option>
-              </select>
-            </Field>
-          </div>
-
-          <Field label={t("description")}>
-            <textarea
-              className="input min-h-[110px] resize-y"
-              value={form.description}
-              onChange={(e) => update({ description: e.target.value })}
-              placeholder={t("descriptionPh")}
-              data-testid="study-description-input"
-            />
-          </Field>
-
-          <Field label={t("descriptionEn")}>
-            <textarea
-              className="input min-h-[80px] resize-y"
-              dir="ltr"
-              value={form.descriptionEn}
-              onChange={(e) => update({ descriptionEn: e.target.value })}
-              placeholder="Optional English description"
-              data-testid="study-description-en-input"
-            />
-          </Field>
-
-          {error && <p className="text-sm font-semibold text-[var(--danger)]">{error}</p>}
-
-          <div className="flex flex-wrap items-center justify-end gap-3 border-t border-[var(--border)] pt-4">
-            <Link href={`/studies/${studyId}`} className="btn-ghost text-sm">
-              {t("cancel")}
-            </Link>
-            <button
-              type="submit"
-              className="btn-primary flex items-center gap-2 text-sm font-bold"
-              disabled={saving}
-              data-testid="study-save"
-            >
-              {saving ? <Spinner size={16} /> : <IconCheckCircle size={16} />}
-              <span>{saving ? t("savingChanges") : t("saveChanges")}</span>
-            </button>
           </div>
         </form>
       </div>

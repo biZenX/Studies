@@ -43,6 +43,8 @@ export async function PUT(
 
   if (body.title !== undefined) values.title = String(body.title).trim();
   if (body.year !== undefined) values.year = String(body.year).trim();
+  if (body.endDate !== undefined)
+    values.endDate = String(body.endDate ?? "").trim() || null;
   if (body.description !== undefined)
     values.description = String(body.description).trim() || null;
   if (body.status !== undefined) values.status = String(body.status);
@@ -53,6 +55,12 @@ export async function PUT(
 
   if (values.title === "") {
     return NextResponse.json({ error: "Title is required" }, { status: 400 });
+  }
+  if (values.endDate && values.year && values.endDate < values.year) {
+    return NextResponse.json(
+      { error: "The end date must be on or after the start date" },
+      { status: 400 },
+    );
   }
 
   const [updated] = await db

@@ -149,8 +149,8 @@ describe("Domain Layer: rosterEngine pure logic", () => {
 
   describe("filterAndSortStudies", () => {
     const studies: StudyWithCount[] = [
-      { id: 1, title: "دراسة القيادة الرياضية", year: "2025-05-10", description: "وصف عام", status: "active", titleEn: "Sports Leadership", descriptionEn: null, participantCount: 15, createdAt: new Date("2025-01-01") },
-      { id: 2, title: "دراسة التحكيم الدولي", year: "2026-02-15", description: "تفاصيل التحكيم", status: "draft", titleEn: "International Refereeing", descriptionEn: null, participantCount: 30, createdAt: new Date("2026-01-01") },
+      { id: 1, title: "دراسة القيادة الرياضية", year: "2025-05-10", endDate: null, description: "وصف عام", status: "active", titleEn: "Sports Leadership", descriptionEn: null, participantCount: 15, createdAt: new Date("2025-01-01") },
+      { id: 2, title: "دراسة التحكيم الدولي", year: "2026-02-15", endDate: null, description: "تفاصيل التحكيم", status: "draft", titleEn: "International Refereeing", descriptionEn: null, participantCount: 30, createdAt: new Date("2026-01-01") },
     ];
 
     it("filters by status", () => {
@@ -169,7 +169,7 @@ describe("Domain Layer: rosterEngine pure logic", () => {
   describe("computeGlobalStats", () => {
     it("computes system-wide totals", () => {
       const studies: StudyWithCount[] = [
-        { id: 1, title: "S1", year: "2026", description: null, status: "active", titleEn: null, descriptionEn: null, participantCount: 2, createdAt: new Date() },
+        { id: 1, title: "S1", year: "2026", endDate: null, description: null, status: "active", titleEn: null, descriptionEn: null, participantCount: 2, createdAt: new Date() },
       ];
       const participants: Participant[] = [
         { id: 1, studyId: 1, name: "P1", country: "مصر", federation: null, email: "p1@mail.com", phone: null, code: null, createdAt: new Date() },

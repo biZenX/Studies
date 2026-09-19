@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { studies, participants } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { buildEmailHtml, sendBrevoEmail, isBrevoConfigured } from "@/lib/brevo";
+import { formatDateRange } from "@/lib/content";
 
 export const dynamic = "force-dynamic";
 
@@ -62,7 +63,7 @@ export async function POST(
         return NextResponse.json({ error: "Not found" }, { status: 404 });
       }
       studyTitle = study.title;
-      studyDate = study.year;
+      studyDate = formatDateRange(study.year, study.endDate, "ar");
 
       const rows = await db
         .select()

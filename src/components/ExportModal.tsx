@@ -19,7 +19,8 @@ import type { Participant, Study } from "@/lib/types";
 type StudyShape = Pick<
   Study,
   "title" | "year" | "description" | "titleEn" | "descriptionEn"
->;
+> &
+  Partial<Pick<Study, "endDate">>;
 
 function Toggle({
   checked,

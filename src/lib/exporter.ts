@@ -1,5 +1,5 @@
 import type { Participant, Study } from "./types";
-import { formatDate, translateCountry, toDateInputValue } from "./content";
+import { formatDate, formatDateRange, translateCountry, toDateInputValue } from "./content";
 
 /* ------------------------------------------------------------------ *
  * Export options — everything the export dialog can control
@@ -102,6 +102,7 @@ type Labels = {
   phone: string;
   date: string;
   year: string;
+  period: string;
   participants: string;
   countries: string;
   federations: string;
@@ -129,6 +130,7 @@ function labelsFor(lang: "ar" | "en"): Labels {
       phone: "Phone",
       date: "Date",
       year: "Year",
+      period: "Period",
       participants: "participants",
       countries: "countries",
       federations: "federations",
@@ -154,6 +156,7 @@ function labelsFor(lang: "ar" | "en"): Labels {
     phone: "الهاتف",
     date: "التاريخ",
     year: "السنة",
+    period: "المدة",
     participants: "مشارك",
     countries: "دولة",
     federations: "اتحاد",
@@ -257,8 +260,11 @@ function cellCount(options: ExportOptions): number {
  * Build the standalone HTML report. Kept side-effect free so it can be used
  * both for the live preview iframe and for the actual download.
  */
+/** The slice of a study the exporter needs; `endDate` is optional for callers that predate the period feature. */
+export type ExportStudy = Pick<Study, "title" | "year" | "description"> & Partial<Pick<Study, "endDate">>;
+
 export function generateStudyHtmlReport(
-  study?: Pick<Study, "title" | "year" | "description"> | null,
+  study?: ExportStudy | null,
   participants: Participant[] = [],
   partialOptions?: Partial<ExportOptions> | null,
 ): string {
@@ -270,11 +276,18 @@ export function generateStudyHtmlReport(
   const description = (options.description ?? study?.description ?? "").trim();
 
   const rawDate = study?.year ?? "";
+  const rawEnd = study?.endDate ?? "";
+  // "date" shows the whole period (from – to) when an end date exists,
+  // "year" keeps the legacy single year, "hidden" removes the badge.
   const dateText =
     options.dateMode === "hidden"
       ? ""
-      : formatDate(rawDate, options.lang);
-  const dateLabel = options.dateMode === "year" ? L.year : L.date;
+      : options.dateMode === "year"
+        ? (toDateInputValue(rawDate) || "").slice(0, 4) || formatDate(rawDate, options.lang)
+        : rawEnd
+          ? formatDateRange(rawDate, rawEnd, options.lang)
+          : formatDate(rawDate, options.lang);
+  const dateLabel = options.dateMode === "year" ? L.year : rawEnd ? L.period : L.date;
 
   const rows = buildRows(participants, options);
   const cols = cellCount(options);
@@ -692,7 +705,7 @@ function todayStamp(): string {
  * and every failure path returns false so callers can show feedback.
  */
 export function downloadStudyReport(
-  study?: Pick<Study, "title" | "year" | "description"> | null,
+  study?: ExportStudy | null,
   participants: Participant[] = [],
   partialOptions?: Partial<ExportOptions> | null,
 ): boolean {
@@ -756,7 +769,7 @@ function openDataUrl(html: string): boolean {
 
 /** Open the generated report in a new tab (fallback when downloads are blocked). */
 export function openStudyReport(
-  study?: Pick<Study, "title" | "year" | "description"> | null,
+  study?: ExportStudy | null,
   participants: Participant[] = [],
   partialOptions?: Partial<ExportOptions> | null,
 ): boolean {

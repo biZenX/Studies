@@ -161,6 +161,26 @@ body {
   animation: scale-in 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+/* Dialogs: slide up as a sheet on phones, scale in as a card elsewhere. */
+@keyframes sheet-up {
+  from {
+    opacity: 0;
+    transform: translateY(28px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.modal-panel {
+  animation: sheet-up 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@media (min-width: 640px) {
+  .modal-panel {
+    animation: scale-in 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+}
+
 @keyframes toast-in {
   from {
     opacity: 0;
@@ -181,7 +201,8 @@ body {
   }
   .animate-fade-up,
   .animate-scale-in,
-  .animate-toast-in {
+  .animate-toast-in,
+  .modal-panel {
     animation: none !important;
   }
   * {
@@ -228,6 +249,38 @@ select.input {
 }
 input[type="date"].input {
   min-height: 44px;
+  /* Native date pickers ignore `dir`; keep the digits readable in RTL. */
+  direction: ltr;
+  text-align: start;
+}
+input[type="date"].input::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+/* Validation state — set on the wrapping Field. */
+.field-error .input,
+.input[aria-invalid="true"] {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.1);
+}
+
+/* Schedule progress (study period: from → to) */
+.progress-track {
+  position: relative;
+  height: 6px;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e2e8f0;
+}
+.progress-fill {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), var(--navy));
+  transition: width 0.4s ease;
 }
 
 @media (max-width: 640px) {
