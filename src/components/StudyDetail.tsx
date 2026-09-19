@@ -5,8 +5,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useLang } from "./lang";
 import { useToast } from "./toast";
-import { useMediaQuery, useMounted } from "./useMediaQuery";
+import { useMediaQuery, useMounted, useToday } from "./useMediaQuery";
 import { ParticipantModal, type ParticipantFormData } from "./ParticipantModal";
+import { StudyModal, type StudyPayload } from "./StudyModal";
+import { studyToForm } from "./StudyForm";
 import { EmailModal } from "./EmailModal";
 import { ExportModal } from "./ExportModal";
 import { ImportModal } from "./ImportModal";
@@ -27,8 +29,17 @@ import {
   IconUpload,
   IconDownload,
   IconFilter,
+  IconCalendar,
+  IconArrowEnd,
 } from "./ui";
-import { formatDate, localizeStudy, normalizeAr, translateCountry } from "@/lib/content";
+import {
+  formatDate,
+  formatDateRange,
+  formatDays,
+  localizeStudy,
+  normalizeAr,
+  translateCountry,
+} from "@/lib/content";
 import type { StudyWithCount, Participant } from "@/lib/types";
 import {
   computeStudyStats,
@@ -37,9 +48,11 @@ import {
   sortParticipants,
   type ParticipantSortOrder,
 } from "@/domain/rosterEngine";
+import { describeSchedule, scheduleHint } from "@/domain/studySchedule";
 import {
   getStudySnapshot,
   deleteLocalStudy,
+  saveLocalStudy,
   saveLocalParticipant,
   deleteLocalParticipant,
   restoreLocalParticipant,
@@ -65,6 +78,7 @@ export function StudyDetail({
   const router = useRouter();
   const toast = useToast();
   const mounted = useMounted();
+  const today = useToday();
   const isSmallScreen = useMediaQuery("(max-width: 639px)");
 
   const activeId = propStudyId || initialStudy?.id || 1;
@@ -117,6 +131,7 @@ export function StudyDetail({
 
   // Modals
   const [participantModal, setParticipantModal] = useState(false);
+  const [studyModal, setStudyModal] = useState(false);
   const [emailModal, setEmailModal] = useState(false);
   const [exportModal, setExportModal] = useState(false);
   const [importModal, setImportModal] = useState(false);
@@ -125,12 +140,39 @@ export function StudyDetail({
   const [editingParticipant, setEditingParticipant] = useState<Participant | null>(null);
   const [deletingParticipant, setDeletingParticipant] = useState<Participant | null>(null);
   const [saving, setSaving] = useState(false);
+  const [savingStudy, setSavingStudy] = useState(false);
 
   /* ----------------------------- derived data ----------------------------- */
 
   const displayStudy = useMemo(
     () => (study ? localizeStudy(study, lang) : null),
     [study, lang],
+  );
+
+  const schedule = useMemo(
+    () => (study ? describeSchedule(study, today) : null),
+    [study, today],
+  );
+  const scheduleText = study ? scheduleHint(study, today, lang) : "";
+  const periodText = study?.year ? formatDateRange(study.year, study.endDate, lang) : "";
+
+  // Seeded only when a different record is opened, never on unrelated renders.
+  const studyFormInitial = useMemo(() => (study ? studyToForm(study) : null), [study]);
+
+  // Participant form seed — memoised for the same reason.
+  const participantFormInitial = useMemo<ParticipantFormData | null>(
+    () =>
+      editingParticipant
+        ? {
+            name: editingParticipant.name,
+            federation: editingParticipant.federation ?? "",
+            country: editingParticipant.country ?? "",
+            email: editingParticipant.email ?? "",
+            phone: editingParticipant.phone ?? "",
+            code: editingParticipant.code ?? "",
+          }
+        : null,
+    [editingParticipant],
   );
 
   const stats = useMemo(() => computeStudyStats(participants), [participants]);
@@ -255,6 +297,30 @@ export function StudyDetail({
     });
   };
 
+  const handleStudySubmit = (data: StudyPayload) => {
+    if (!study) return;
+    setSavingStudy(true);
+    try {
+      saveLocalStudy({
+        id: study.id,
+        title: data.title,
+        year: data.year,
+        endDate: data.endDate,
+        description: data.description,
+        status: data.status,
+        titleEn: data.titleEn,
+        descriptionEn: data.descriptionEn,
+      });
+      setStudyModal(false);
+      toast.success(t("studyUpdated"));
+    } catch (err) {
+      console.error("Save failed:", err);
+      toast.error(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSavingStudy(false);
+    }
+  };
+
   const handleDeleteStudy = async () => {
     if (!study) return;
     setSaving(true);
@@ -352,12 +418,27 @@ export function StudyDetail({
       <div className="card mb-5 p-5 sm:p-7">
         <div className="flex flex-col items-center text-center">
           <div className="mb-3 flex flex-wrap items-center justify-center gap-2">
-            {study.year && (
-              <span className="num inline-flex items-center rounded-full bg-[#eef2f7] px-3 py-1 text-xs font-bold text-[var(--navy)]">
-                {t("date")}: {formatDate(study.year, lang)}
+            {periodText && (
+              <span
+                className="num inline-flex items-center gap-1.5 rounded-full bg-[#eef2f7] px-3 py-1 text-xs font-bold text-[var(--navy)]"
+                data-testid="study-period"
+              >
+                <IconCalendar size={13} />
+                {periodText}
               </span>
             )}
-            <StatusBadge status={study.status} label={t(study.status)} />
+            <StatusBadge
+              status={schedule?.status ?? study.status}
+              label={t(schedule?.status ?? study.status)}
+            />
+            {scheduleText && (
+              <span
+                className="num inline-flex items-center rounded-full bg-white px-3 py-1 text-xs font-bold text-[var(--text-secondary)] ring-1 ring-[var(--border)]"
+                data-testid="study-schedule-hint"
+              >
+                {scheduleText}
+              </span>
+            )}
             <span className="num inline-flex items-center rounded-full bg-[var(--accent-tint)] px-3 py-1 text-xs font-bold text-[var(--accent-strong)]">
               {participants.length} {t("participants")}
             </span>
@@ -380,16 +461,68 @@ export function StudyDetail({
             </p>
           )}
 
+          {/* Schedule strip — from → to, with progress while the study runs */}
+          {schedule && study.year && (
+            <div
+              className="mx-auto mt-4 w-full max-w-2xl rounded-2xl border border-[var(--border)] bg-[var(--bg)]/70 px-4 py-3 text-start"
+              data-testid="study-schedule"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-xs">
+                <span className="flex items-center gap-1.5 font-bold text-[var(--text)]">
+                  <span className="text-[var(--text-tertiary)]">{lang === "en" ? "From" : "من"}</span>
+                  <span className="num">{formatDate(study.year, lang)}</span>
+                  <IconArrowEnd size={14} className="text-[var(--text-tertiary)]" />
+                  <span className="text-[var(--text-tertiary)]">{lang === "en" ? "to" : "إلى"}</span>
+                  <span className="num">
+                    {study.endDate ? formatDate(study.endDate, lang) : t("openEnded")}
+                  </span>
+                </span>
+                <span className="num font-semibold text-[var(--text-secondary)]">
+                  {schedule.totalDays
+                    ? schedule.dayNumber
+                      ? `${t("day")} ${schedule.dayNumber} ${t("of")} ${schedule.totalDays}`
+                      : `${t("duration")}: ${formatDays(schedule.totalDays, lang)}`
+                    : t("openEndedHint")}
+                </span>
+              </div>
+              {schedule.totalDays && (
+                <div
+                  className="progress-track mt-2"
+                  role="progressbar"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Math.round(
+                    (schedule.status === "closed" ? 1 : schedule.status === "upcoming" ? 0 : (schedule.progress ?? 0)) * 100,
+                  )}
+                >
+                  <div
+                    className="progress-fill"
+                    style={{
+                      width: `${Math.round(
+                        (schedule.status === "closed"
+                          ? 1
+                          : schedule.status === "upcoming"
+                            ? 0
+                            : (schedule.progress ?? 0)) * 100,
+                      )}%`,
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Actions */}
           <div className="mt-5 flex w-full flex-wrap items-center justify-center gap-2">
-            <Link
-              href={`/studies/${study.id}/edit`}
+            <button
+              type="button"
               className="btn-ghost flex items-center gap-1.5 !px-3.5 !py-2 text-xs font-bold"
+              onClick={() => setStudyModal(true)}
               data-testid="edit-study-link"
             >
               <IconEdit size={14} />
               <span>{t("editStudy")}</span>
-            </Link>
+            </button>
             <button
               type="button"
               className="btn-ghost flex items-center gap-1.5 !px-3.5 !py-2 text-xs font-bold !text-red-600 hover:!border-red-200 hover:!bg-red-50"
@@ -875,21 +1008,18 @@ export function StudyDetail({
       {/* ---------------- Modals ---------------- */}
       <ParticipantModal
         open={participantModal}
-        initial={
-          editingParticipant
-            ? {
-                name: editingParticipant.name,
-                federation: editingParticipant.federation ?? "",
-                country: editingParticipant.country ?? "",
-                email: editingParticipant.email ?? "",
-                phone: editingParticipant.phone ?? "",
-                code: editingParticipant.code ?? "",
-              }
-            : null
-        }
+        initial={participantFormInitial}
         onClose={() => setParticipantModal(false)}
         onSubmit={handleParticipantSubmit}
         saving={saving}
+      />
+
+      <StudyModal
+        open={studyModal}
+        initial={studyFormInitial}
+        onClose={() => setStudyModal(false)}
+        onSubmit={handleStudySubmit}
+        saving={savingStudy}
       />
 
       <ExportModal
@@ -913,7 +1043,7 @@ export function StudyDetail({
         open={emailModal}
         studyId={study.id}
         studyTitle={displayStudy.title}
-        year={study.year}
+        dateText={periodText}
         recipientCount={validEmails}
         recipients={filtered.filter((p) => p.email && p.email.includes("@"))}
         brevoConfigured={brevoConfigured || false}
@@ -983,7 +1113,10 @@ export function StudyDetail({
                 {t("deleteConfirmSub")}
               </p>
               <p className="mt-2 rounded-lg bg-slate-100 p-2 text-xs font-bold text-slate-700">
-                {displayStudy.title} ({formatDate(study.year, lang)})
+                {displayStudy.title}
+                {periodText && (
+                  <span className="num block font-semibold text-slate-500">{periodText}</span>
+                )}
               </p>
             </div>
           </div>

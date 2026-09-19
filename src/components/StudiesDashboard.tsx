@@ -5,8 +5,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useLang } from "./lang";
 import { useToast } from "./toast";
-import { useMounted } from "./useMediaQuery";
-import { StudyModal, type StudyFormData } from "./StudyModal";
+import { useMounted, useToday } from "./useMediaQuery";
+import { StudyModal, type StudyPayload } from "./StudyModal";
+import { studyToForm } from "./StudyForm";
 import { ExportModal } from "./ExportModal";
 import {
   Modal,
@@ -19,12 +20,19 @@ import {
   IconEdit,
   IconTrash,
   IconDownload,
+  IconCalendar,
   StatusBadge,
   Spinner,
 } from "./ui";
 import type { StudyWithCount, Stats, Participant } from "@/lib/types";
-import { formatDate, localizeStudy } from "@/lib/content";
+import { formatDateRange, localizeStudy } from "@/lib/content";
 import { filterAndSortStudies } from "@/domain/rosterEngine";
+import {
+  countByEffectiveStatus,
+  resolveStudyStatus,
+  scheduleHint,
+  type EffectiveStatus,
+} from "@/domain/studySchedule";
 import {
   getDashboardSnapshot,
   getStudySnapshot,
@@ -36,7 +44,9 @@ import {
 const EMPTY_STATS: Stats = { studies: 0, participants: 0, countries: 0, withEmail: 0 };
 const EMPTY_PARTICIPANTS: Participant[] = [];
 
-type SortKey = "newest" | "title" | "participants";
+type SortKey = "newest" | "date" | "title" | "participants";
+type StatusTab = "all" | EffectiveStatus;
+const STATUS_TABS: StatusTab[] = ["all", "active", "upcoming", "closed", "draft"];
 
 export function StudiesDashboard({
   initialStudies,
@@ -49,6 +59,7 @@ export function StudiesDashboard({
   const toast = useToast();
   const router = useRouter();
   const mounted = useMounted();
+  const today = useToday();
 
   // The local-first store is the source of truth in the browser; the server
   // payload only bootstraps the very first paint (and covers the case where a
@@ -76,9 +87,10 @@ export function StudiesDashboard({
   const stats = snapshot.stats;
 
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<StatusTab>("all");
   const [sortKey, setSortKey] = useState<SortKey>("newest");
   const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing] = useState<StudyWithCount | null>(null);
   const [deleting, setDeleting] = useState<StudyWithCount | null>(null);
   const [exporting, setExporting] = useState<StudyWithCount | null>(null);
   const [saving, setSaving] = useState(false);
@@ -89,27 +101,56 @@ export function StudiesDashboard({
       status: statusFilter,
       sort: sortKey,
       lang,
+      today,
     });
-  }, [studies, search, statusFilter, sortKey, lang]);
+  }, [studies, search, statusFilter, sortKey, lang, today]);
 
-  const openCreate = () => setModalOpen(true);
+  const statusCounts = useMemo(() => countByEffectiveStatus(studies, today), [studies, today]);
 
-  const handleSubmit = (data: StudyFormData) => {
+  const openCreate = () => {
+    setEditing(null);
+    setModalOpen(true);
+  };
+
+  const openEdit = (s: StudyWithCount) => {
+    setEditing(s);
+    setModalOpen(true);
+  };
+
+  const closeModal = () => {
+    setModalOpen(false);
+  };
+
+  // Stable per record so the popup is only re-seeded when a *different* study
+  // is opened, never on unrelated dashboard re-renders.
+  const modalInitial = useMemo(() => (editing ? studyToForm(editing) : null), [editing]);
+
+  const handleSubmit = (data: StudyPayload) => {
     setSaving(true);
     try {
+      const isEdit = Boolean(editing);
       const saved = saveLocalStudy({
+        id: editing?.id,
         title: data.title,
         year: data.year,
+        endDate: data.endDate,
         description: data.description,
         status: data.status,
         titleEn: data.titleEn,
         descriptionEn: data.descriptionEn,
       });
       setModalOpen(false);
-      toast.success(t("studyUpdated"), {
-        label: t("edit"),
-        onClick: () => router.push(`/studies/${saved.id}/edit`),
-      });
+      if (isEdit) {
+        toast.success(t("studyUpdated"));
+      } else {
+        toast.success(t("studyCreated"), {
+          label: t("openStudy"),
+          onClick: () => router.push(`/studies/${saved.id}`),
+        });
+      }
+    } catch (err) {
+      console.error("Save failed:", err);
+      toast.error(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
     }
@@ -218,27 +259,41 @@ export function StudiesDashboard({
 
       {/* Filters */}
       <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex flex-wrap items-center gap-1 rounded-2xl border border-[var(--border)] bg-white p-1 shadow-2xs">
-          {[
-            { id: "all", label: t("all") },
-            { id: "active", label: t("active") },
-            { id: "draft", label: t("draft") },
-            { id: "closed", label: t("closed") },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setStatusFilter(tab.id)}
-              aria-pressed={statusFilter === tab.id}
-              className={`rounded-xl px-3 py-1.5 text-xs font-bold transition ${
-                statusFilter === tab.id
-                  ? "bg-[var(--accent-tint)] text-[var(--accent-strong)]"
-                  : "text-[var(--text-secondary)] hover:text-[var(--text)]"
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+        <div
+          className="flex flex-wrap items-center gap-1 rounded-2xl border border-[var(--border)] bg-white p-1 shadow-2xs"
+          role="tablist"
+          aria-label={t("filterStatus")}
+        >
+          {STATUS_TABS.map((id) => {
+            const selected = statusFilter === id;
+            const count = statusCounts[id];
+            return (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                onClick={() => setStatusFilter(id)}
+                aria-selected={selected}
+                data-testid={`status-tab-${id}`}
+                className={`flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-bold transition ${
+                  selected
+                    ? "bg-[var(--accent-tint)] text-[var(--accent-strong)]"
+                    : "text-[var(--text-secondary)] hover:text-[var(--text)]"
+                }`}
+              >
+                <span>{t(id)}</span>
+                {mounted && (
+                  <span
+                    className={`num rounded-full px-1.5 py-px text-[10px] ${
+                      selected ? "bg-white/80 text-[var(--accent-strong)]" : "bg-[var(--bg)] text-[var(--text-tertiary)]"
+                    }`}
+                  >
+                    {count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
 
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -249,6 +304,7 @@ export function StudiesDashboard({
             aria-label={t("sortBy")}
           >
             <option value="newest">{t("sortNewest")}</option>
+            <option value="date">{t("sortDate")}</option>
             <option value="title">{t("sortName")}</option>
             <option value="participants">{t("totalParticipants")}</option>
           </select>
@@ -332,8 +388,9 @@ export function StudiesDashboard({
               study={s}
               index={i}
               lang={lang}
+              today={today}
               onExport={() => openExport(s)}
-              onEdit={() => router.push(`/studies/${s.id}/edit`)}
+              onEdit={() => openEdit(s)}
               onDelete={() => setDeleting(s)}
               t={t}
             />
@@ -341,11 +398,11 @@ export function StudiesDashboard({
         </div>
       )}
 
-      {/* Create study */}
+      {/* Create / edit study */}
       <StudyModal
         open={modalOpen}
-        initial={null}
-        onClose={() => setModalOpen(false)}
+        initial={modalInitial}
+        onClose={closeModal}
         onSubmit={handleSubmit}
         saving={saving}
       />
@@ -377,8 +434,12 @@ export function StudiesDashboard({
                 {t("deleteConfirmSub")}
               </p>
               <p className="mt-2 rounded-lg bg-slate-100 p-2 text-xs font-bold text-slate-700">
-                {deleting ? localizeStudy(deleting, lang).title : ""} (
-                {deleting ? formatDate(deleting.year, lang) : ""})
+                {deleting ? localizeStudy(deleting, lang).title : ""}
+                {deleting?.year && (
+                  <span className="num block font-semibold text-slate-500">
+                    {formatDateRange(deleting.year, deleting.endDate, lang)}
+                  </span>
+                )}
               </p>
             </div>
           </div>
@@ -407,6 +468,7 @@ function StudyCard({
   study,
   index,
   lang,
+  today,
   onExport,
   onEdit,
   onDelete,
@@ -415,12 +477,15 @@ function StudyCard({
   study: StudyWithCount;
   index: number;
   lang: "ar" | "en";
+  today: string;
   onExport: () => void;
   onEdit: () => void;
   onDelete: () => void;
   t: (k: string) => string;
 }) {
   const localized = localizeStudy(study, lang);
+  const effective = resolveStudyStatus(study, today);
+  const hint = scheduleHint(study, today, lang);
 
   return (
     <article
@@ -437,11 +502,20 @@ function StudyCard({
 
       <div className="relative z-10 pointer-events-none">
         <div className="mb-3 flex items-start justify-between gap-2">
-          <span className="num inline-flex items-center rounded-full bg-[#eef2f7] px-2.5 py-1 text-[11px] font-bold text-[var(--navy)]">
-            {formatDate(study.year, lang)}
+          <span
+            className="num inline-flex min-w-0 items-center gap-1.5 rounded-full bg-[#eef2f7] px-2.5 py-1 text-[11px] font-bold text-[var(--navy)]"
+            data-testid="study-card-period"
+          >
+            <IconCalendar size={12} className="shrink-0" />
+            <span className="truncate">{formatDateRange(study.year, study.endDate, lang)}</span>
           </span>
-          <StatusBadge status={study.status} label={t(study.status)} />
+          <StatusBadge status={effective} label={t(effective)} />
         </div>
+        {hint && (
+          <p className="num -mt-1.5 mb-2.5 text-[11px] font-semibold text-[var(--text-tertiary)]" data-testid="study-card-hint">
+            {hint}
+          </p>
+        )}
 
         <h3
           className="mb-2 line-clamp-2 text-base font-extrabold leading-snug text-[var(--navy)] transition-colors sm:text-[17px]"

@@ -9,6 +9,7 @@ export async function ensureSchema() {
       id SERIAL PRIMARY KEY,
       title TEXT NOT NULL,
       year TEXT NOT NULL,
+      end_date TEXT,
       description TEXT,
       status TEXT NOT NULL DEFAULT 'active',
       title_en TEXT,
@@ -32,6 +33,7 @@ export async function ensureSchema() {
   await db.execute(sql`ALTER TABLE studies ADD COLUMN IF NOT EXISTS title_en TEXT`);
   await db.execute(sql`ALTER TABLE studies ADD COLUMN IF NOT EXISTS description_en TEXT`);
   await db.execute(sql`ALTER TABLE participants ADD COLUMN IF NOT EXISTS code TEXT`);
+  await db.execute(sql`ALTER TABLE studies ADD COLUMN IF NOT EXISTS end_date TEXT`);
 }
 
 export async function ensureSeed() {
@@ -45,6 +47,7 @@ export async function ensureSeed() {
     .values({
       title: DEFAULT_STUDY.title,
       year: DEFAULT_STUDY.year,
+      endDate: DEFAULT_STUDY.endDate,
       description: DEFAULT_STUDY.description,
       status: DEFAULT_STUDY.status,
       titleEn: DEFAULT_STUDY.titleEn,

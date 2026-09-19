@@ -225,3 +225,95 @@ export function todayIso(): string {
   const off = now.getTimezoneOffset();
   return new Date(now.getTime() - off * 60_000).toISOString().slice(0, 10);
 }
+
+/* ------------------------------------------------------------------ *
+ * Date ranges — a study runs "from" a start date "to" an end date
+ * ------------------------------------------------------------------ */
+
+const DAY_MS = 86_400_000;
+
+/** Parse an ISO date as a UTC timestamp (no DST surprises when counting days). */
+function isoToUtc(iso: string): number {
+  const [y, m, d] = iso.split("-").map(Number);
+  return Date.UTC(y, m - 1, d);
+}
+
+/** `2026-01-01` + 9 → `2026-01-10`. Returns "" for unreadable input. */
+export function addDaysIso(value: string | null | undefined, days: number): string {
+  const iso = toDateInputValue(value);
+  if (!iso) return "";
+  return new Date(isoToUtc(iso) + days * DAY_MS).toISOString().slice(0, 10);
+}
+
+/**
+ * Signed number of calendar days from `from` to `to` (`to - from`).
+ * `daysBetween("2026-01-01", "2026-01-10")` → 9. Returns null when either date
+ * cannot be understood.
+ */
+export function daysBetween(
+  from: string | null | undefined,
+  to: string | null | undefined,
+): number | null {
+  const a = toDateInputValue(from);
+  const b = toDateInputValue(to);
+  if (!a || !b) return null;
+  return Math.round((isoToUtc(b) - isoToUtc(a)) / DAY_MS);
+}
+
+/**
+ * Inclusive length of a range in days: 1 → 10 January is 10 days.
+ * Returns null for open-ended or invalid ranges.
+ */
+export function rangeLengthDays(
+  start: string | null | undefined,
+  end: string | null | undefined,
+): number | null {
+  const diff = daysBetween(start, end);
+  if (diff === null || diff < 0) return null;
+  return diff + 1;
+}
+
+/**
+ * Arabic has real plural forms for days; English just needs an "s".
+ *   1 → يوم واحد · 2 → يومان · 3–10 → ٣ أيام · 11+ → ١١ يوماً
+ */
+export function formatDays(n: number, lang: Lang = "ar"): string {
+  const abs = Math.abs(Math.round(n));
+  if (lang === "en") return abs === 1 ? "1 day" : `${abs} days`;
+  if (abs === 0) return "0 يوم";
+  if (abs === 1) return "يوم واحد";
+  if (abs === 2) return "يومان";
+  if (abs <= 10) return `${abs} أيام`;
+  return `${abs} يوماً`;
+}
+
+/**
+ * Human friendly range that avoids repeating the month/year when it can:
+ *   1 – 10 يناير 2026 · 25 ديسمبر 2025 – 3 يناير 2026 · 1 Jan – 10 Jan 2026
+ * Falls back to the single start date when there is no end.
+ */
+export function formatDateRange(
+  start: string | Date | null | undefined,
+  end: string | Date | null | undefined,
+  lang: Lang = "ar",
+): string {
+  const a = toDateInputValue(start);
+  const b = toDateInputValue(end);
+  if (!a) return b ? formatDate(b, lang) : "";
+  if (!b || b === a) return formatDate(start, lang);
+
+  const [ay, am, ad] = a.split("-").map(Number);
+  const [by, bm, bd] = b.split("-").map(Number);
+  const months = lang === "en" ? EN_MONTHS : AR_MONTHS;
+  const dash = " – ";
+
+  if (ay === by && am === bm) {
+    return lang === "en"
+      ? `${ad}${dash}${bd} ${months[bm - 1]} ${by}`
+      : `${ad}${dash}${bd} ${months[bm - 1]} ${by}`;
+  }
+  if (ay === by) {
+    return `${ad} ${months[am - 1]}${dash}${bd} ${months[bm - 1]} ${by}`;
+  }
+  return `${formatDate(a, lang)}${dash}${formatDate(b, lang)}`;
+}

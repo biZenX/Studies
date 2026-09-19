@@ -2,6 +2,8 @@ export const DEFAULT_STUDY = {
   title: "خصائص وتحديات تدريب لاعبات المساقات",
   /** Full ISO date — the UI labels this "التاريخ" (date) instead of "السنة" (year). */
   year: "2026-01-01",
+  /** No end date — the study stays active until it is closed manually. */
+  endDate: null as string | null,
   description:
     "دراسة تدريبية إقليمية تستهدف تأهيل لاعبات المساقات وتطوير مهاراتهن الفنية والبدنية والذهنية.",
   status: "active",

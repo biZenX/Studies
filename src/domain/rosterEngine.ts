@@ -8,6 +8,8 @@
  */
 
 import type { Participant, StudyWithCount, Stats } from "@/lib/types";
+import { resolveStudyStatus } from "./studySchedule";
+import { toDateInputValue } from "@/lib/content";
 
 /**
  * Normalizes Arabic text for consistent searching and matching.
@@ -190,10 +192,15 @@ export function sortParticipants(
   return result;
 }
 
-export type StudySortOrder = "newest" | "title" | "participants";
+export type StudySortOrder = "newest" | "title" | "participants" | "date";
 
 /**
  * Pure function to filter and sort studies list on the dashboard.
+ *
+ * The status filter works on the *effective* status (schedule-aware): a study
+ * whose end date has passed shows up under "completed" even though its stored
+ * status is still "active". Pass `today` (ISO date) to enable that; without it
+ * the stored status is used.
  */
 export function filterAndSortStudies(
   studies: readonly StudyWithCount[],
@@ -202,16 +209,18 @@ export function filterAndSortStudies(
     status?: string;
     sort?: StudySortOrder;
     lang?: "ar" | "en";
+    today?: string | null;
   },
 ): StudyWithCount[] {
   const query = (options.search ?? "").trim().toLowerCase();
   const statusFilter = options.status ?? "all";
   const sort = options.sort ?? "newest";
   const lang = options.lang ?? "ar";
+  const today = options.today ?? null;
 
   const filtered = studies.filter((s) => {
-    // Status
-    if (statusFilter !== "all" && s.status !== statusFilter) {
+    // Status (schedule-aware)
+    if (statusFilter !== "all" && resolveStudyStatus(s, today) !== statusFilter) {
       return false;
     }
 
@@ -246,6 +255,18 @@ export function filterAndSortStudies(
 
     case "participants":
       sorted.sort((a, b) => b.participantCount - a.participantCount);
+      break;
+
+    case "date":
+      // Latest start date first; undated records sink to the bottom.
+      sorted.sort((a, b) => {
+        const da = toDateInputValue(a.year);
+        const db = toDateInputValue(b.year);
+        if (da === db) return b.id - a.id;
+        if (!da) return 1;
+        if (!db) return -1;
+        return db.localeCompare(da);
+      });
       break;
 
     case "newest":

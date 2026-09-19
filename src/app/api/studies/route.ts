@@ -14,6 +14,7 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const title = (body.title ?? "").toString().trim();
   const year = (body.year ?? "").toString().trim();
+  const endDate = (body.endDate ?? "").toString().trim() || null;
   const description = (body.description ?? "").toString().trim() || null;
   const status = (body.status ?? "active").toString() || "active";
   const titleEn = (body.titleEn ?? "").toString().trim() || null;
@@ -21,14 +22,20 @@ export async function POST(req: Request) {
 
   if (!title || !year) {
     return NextResponse.json(
-      { error: "Title and date are required" },
+      { error: "Title and start date are required" },
+      { status: 400 },
+    );
+  }
+  if (endDate && endDate < year) {
+    return NextResponse.json(
+      { error: "The end date must be on or after the start date" },
       { status: 400 },
     );
   }
 
   const [study] = await db
     .insert(studies)
-    .values({ title, year, description, status, titleEn, descriptionEn })
+    .values({ title, year, endDate, description, status, titleEn, descriptionEn })
     .returning();
 
   return NextResponse.json({ ...study, participantCount: 0 }, { status: 201 });

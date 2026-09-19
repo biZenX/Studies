@@ -5,7 +5,6 @@ import { Modal, Field, Spinner, IconMail, IconAlert, IconCheck, IconCheckCircle 
 import { useLang } from "./lang";
 import { useToast } from "./toast";
 import { buildEmailHtml } from "@/lib/brevo";
-import { formatDate } from "@/lib/content";
 import type { SendResult } from "@/lib/types";
 
 type Recipient = { name: string; email: string | null };
@@ -28,7 +27,7 @@ export function EmailModal({
   open,
   studyId,
   studyTitle,
-  year,
+  dateText,
   recipientCount,
   recipients,
   brevoConfigured,
@@ -37,14 +36,15 @@ export function EmailModal({
   open: boolean;
   studyId: number;
   studyTitle: string;
-  year: string;
+  /** Already formatted study period, e.g. "1 – 10 يناير 2026". */
+  dateText: string;
   recipientCount: number;
   /** Local-first roster slice; used when the server has no database attached. */
   recipients?: Recipient[];
   brevoConfigured: boolean;
   onClose: () => void;
 }) {
-  const { t, lang } = useLang();
+  const { t } = useLang();
   const toast = useToast();
 
   const [subject, setSubject] = useState("");
@@ -55,8 +55,6 @@ export function EmailModal({
   const [status, setStatus] = useState<ServiceStatus>(null);
   const [checking, setChecking] = useState(false);
   const [prevOpen, setPrevOpen] = useState(false);
-
-  const dateText = formatDate(year, lang);
 
   if (open && !prevOpen) {
     setPrevOpen(true);
