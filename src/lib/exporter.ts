@@ -34,7 +34,6 @@ export type ExportOptions = {
   groupByCountry: boolean;
   showStats: boolean;
   showSearch: boolean;
-  showPrint: boolean;
   showCountryBreakdown: boolean;
   showFooterNote: boolean;
   footerNote: string;
@@ -64,7 +63,6 @@ export const DEFAULT_EXPORT_OPTIONS: ExportOptions = {
   groupByCountry: false,
   showStats: true,
   showSearch: true,
-  showPrint: true,
   showCountryBreakdown: false,
   showFooterNote: true,
   footerNote: "",
@@ -109,7 +107,6 @@ type Labels = {
   federations: string;
   withEmail: string;
   searchPh: string;
-  print: string;
   empty: string;
   matching: string;
   breakdown: string;
@@ -137,7 +134,6 @@ function labelsFor(lang: "ar" | "en"): Labels {
       federations: "federations",
       withEmail: "with email",
       searchPh: "Search by name, federation or country...",
-      print: "Print",
       empty: "No participants registered for this study",
       matching: "matching participants",
       breakdown: "Country breakdown",
@@ -163,7 +159,6 @@ function labelsFor(lang: "ar" | "en"): Labels {
     federations: "اتحاد",
     withEmail: "لهم بريد إلكتروني",
     searchPh: "بحث بالاسم أو الاتحاد أو الدولة...",
-    print: "طباعة",
     empty: "لا يوجد مشاركون مسجلون في هذه الدراسة",
     matching: "مشارك مطابق",
     breakdown: "توزيع المشاركين حسب الدولة",
@@ -392,23 +387,13 @@ export function generateStudyHtmlReport(
       </div>`
     : "";
 
-  const toolbarHtml =
-    options.showSearch || options.showPrint
-      ? `<div class="toolbar no-print">
-          ${
-            options.showSearch
-              ? `<div class="search-box">
-                  <input type="search" id="searchInput" class="search-input" placeholder="${L.searchPh}" autocomplete="off">
-                </div>`
-              : `<div class="search-box"></div>`
-          }
-          ${
-            options.showPrint
-              ? `<button type="button" class="print-btn" onclick="window.print()">${L.print}</button>`
-              : ""
-          }
-        </div>`
-      : "";
+  const toolbarHtml = options.showSearch
+    ? `<div class="toolbar">
+        <div class="search-box">
+          <input type="search" id="searchInput" class="search-input" placeholder="${L.searchPh}" autocomplete="off">
+        </div>
+      </div>`
+    : "";
 
   const footerNote = options.showFooterNote
     ? options.footerNote.trim() || L.defaultNote
@@ -529,13 +514,6 @@ export function generateStudyHtmlReport(
       background: #fff; color: var(--ink); transition: border-color .18s, box-shadow .18s;
     }
     .search-input:focus { border-color: var(--accent); box-shadow: 0 0 0 4px ${theme.accent}1f; }
-    .print-btn {
-      border: 1.5px solid var(--border); background: #fff; color: var(--navy);
-      font-family: inherit; font-weight: 700; font-size: 13px;
-      padding: 10px 18px; border-radius: 12px; cursor: pointer;
-    }
-    .print-btn:hover { border-color: var(--accent); color: var(--accent); }
-
     /* ---------- Table ---------- */
     .table-wrap { overflow: auto; border: 1px solid var(--border); border-radius: 14px; max-height: none; }
     table { width: 100%; border-collapse: collapse; font-size: var(--font-size); text-align: ${L.dir === "rtl" ? "right" : "left"}; }
@@ -792,43 +770,6 @@ export function openStudyReport(
     return Boolean(win);
   } catch (err) {
     console.error("Open report failed:", err);
-    return false;
-  }
-}
-
-/** Print the report from a hidden iframe without navigating away. */
-export function printStudyReport(
-  study?: Pick<Study, "title" | "year" | "description"> | null,
-  participants: Participant[] = [],
-  partialOptions?: Partial<ExportOptions> | null,
-): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    const html = generateStudyHtmlReport(study, participants, partialOptions);
-    const frame = document.createElement("iframe");
-    frame.setAttribute("aria-hidden", "true");
-    frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;opacity:0;";
-    document.body.appendChild(frame);
-
-    const doc = frame.contentDocument;
-    if (!doc) return false;
-    doc.open();
-    doc.write(html);
-    doc.close();
-
-    const run = () => {
-      try {
-        frame.contentWindow?.focus();
-        frame.contentWindow?.print();
-      } finally {
-        window.setTimeout(() => frame.remove(), 1500);
-      }
-    };
-    // Give the document a tick to settle so fonts/layout are ready.
-    window.setTimeout(run, 250);
-    return true;
-  } catch (err) {
-    console.error("Print failed:", err);
     return false;
   }
 }
