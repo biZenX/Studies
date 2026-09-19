@@ -1,0 +1,848 @@
+<!-- بداية تطبيق بطاقات الاستذكار المطور مع نظام التقييم المباشر -->
+<div id="flashcards-app-container" dir="rtl">
+  <style>
+    #flashcards-app-container {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      max-width: 950px;
+      margin: 20px auto;
+      padding: 20px;
+      background: #f8fafc;
+      border-radius: 18px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+      color: #0f172a;
+    }
+
+    .app-header {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    .app-header h2 {
+      font-size: 24px;
+      color: #1e293b;
+      margin-bottom: 6px;
+    }
+    .app-header p {
+      font-size: 14px;
+      color: #64748b;
+      margin: 0;
+    }
+
+    /* Dashboard Stats */
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: 12px;
+      background: #ffffff;
+      padding: 16px;
+      border-radius: 14px;
+      margin-bottom: 20px;
+      border: 1px solid #e2e8f0;
+    }
+    .stat-card {
+      text-align: center;
+      padding: 10px;
+      background: #f1f5f9;
+      border-radius: 10px;
+    }
+    .stat-number {
+      font-size: 22px;
+      font-weight: 800;
+    }
+    .stat-title {
+      font-size: 12px;
+      color: #64748b;
+      font-weight: 600;
+    }
+
+    /* Search & Filter Bar */
+    .controls-wrapper {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .search-input-field {
+      width: 100%;
+      padding: 12px 16px;
+      border: 2px solid #cbd5e1;
+      border-radius: 10px;
+      font-size: 14px;
+      outline: none;
+      box-sizing: border-box;
+    }
+    .search-input-field:focus {
+      border-color: #2563eb;
+    }
+
+    .filter-buttons-group {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .filter-btn {
+      padding: 8px 14px;
+      border: 1px solid #cbd5e1;
+      background: #ffffff;
+      color: #334155;
+      border-radius: 8px;
+      font-size: 12.5px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .filter-btn.active, .filter-btn:hover {
+      background: #2563eb;
+      color: #ffffff;
+      border-color: #2563eb;
+    }
+    .btn-reset {
+      background: #ef4444;
+      color: #ffffff;
+      border: none;
+      margin-right: auto;
+    }
+    .btn-reset:hover {
+      background: #dc2626;
+    }
+
+    /* Cards Grid Layout */
+    .cards-grid-layout {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 16px;
+    }
+
+    /* Card Item Style */
+    .card-box {
+      background: #ffffff;
+      border: 2px solid #e2e8f0;
+      border-radius: 14px;
+      padding: 18px;
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-height: 180px;
+      position: relative;
+    }
+    .card-box:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.06);
+      border-color: #2563eb;
+    }
+
+    .card-top-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .category-tag {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 10px;
+      border-radius: 20px;
+      color: #ffffff;
+    }
+    .cat-physio { background-color: #16a34a; }
+    .cat-tech { background-color: #2563eb; }
+    .cat-steeple { background-color: #ea580c; }
+    .cat-walk { background-color: #9333ea; }
+    .cat-plan { background-color: #dc2626; }
+
+    .status-badge {
+      font-size: 16px;
+    }
+
+    .question-text {
+      font-size: 15px;
+      font-weight: 700;
+      color: #1e293b;
+      line-height: 1.5;
+      margin-bottom: 12px;
+    }
+
+    .answer-container {
+      display: none;
+      background: #f1f5f9;
+      border-right: 4px solid #2563eb;
+      padding: 12px;
+      border-radius: 8px;
+      font-size: 13.5px;
+      color: #334155;
+      line-height: 1.6;
+      margin-top: 10px;
+    }
+    .card-box.open .answer-container {
+      display: block;
+    }
+
+    /* Rating Buttons inside Card */
+    .rating-buttons-wrapper {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+      padding-top: 10px;
+      border-top: 1px stroke #e2e8f0;
+    }
+    .rate-btn {
+      flex: 1;
+      padding: 8px;
+      border: none;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    .rate-btn:hover {
+      opacity: 0.85;
+    }
+    .rate-know { background-color: #22c55e; color: #ffffff; }
+    .rate-review { background-color: #f97316; color: #ffffff; }
+
+    .click-instruction {
+      font-size: 11px;
+      color: #94a3b8;
+      text-align: left;
+      margin-top: 8px;
+    }
+  </style>
+
+  <div class="app-header">
+    <h2>بطاقات استذكار ألعاب القوى التفاعلية 🏃‍♂️</h2>
+    <p>اختبر معلوماتك وقيم مستواك في الـ 30 مفهوماً أساسياً</p>
+  </div>
+
+  <!-- Dashboard -->
+  <div class="dashboard-grid">
+    <div class="stat-card">
+      <div class="stat-number" id="totalCount">30</div>
+      <div class="stat-title">إجمالي البطاقات</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-number" style="color: #22c55e;" id="knowCount">0</div>
+      <div class="stat-title">عرفتها ✅</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-number" style="color: #f97316;" id="reviewCount">0</div>
+      <div class="stat-title">محتاجة مراجعة ❌</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-number" style="color: #64748b;" id="unratedCount">30</div>
+      <div class="stat-title">لم تُقيّم ⚪</div>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls-wrapper">
+    <input type="text" id="searchInput" class="search-input-field" placeholder="ابحث في الأسئلة والإجابات..." onkeyup="applyFilters()">
+    <div class="filter-buttons-group">
+      <button class="filter-btn active" data-cat="all" onclick="filterCategory('all', this)">الكل</button>
+      <button class="filter-btn" data-cat="الفسيولوجيا" onclick="filterCategory('الفسيولوجيا', this)">الفسيولوجيا</button>
+      <button class="filter-btn" data-cat="التكنيك" onclick="filterCategory('التكنيك', this)">التكنيك</button>
+      <button class="filter-btn" data-cat="الموانع" onclick="filterCategory('الموانع', this)">الموانع</button>
+      <button class="filter-btn" data-cat="المشي" onclick="filterCategory('المشي', this)">المشي</button>
+      <button class="filter-btn" data-cat="التخطيط" onclick="filterCategory('التخطيط', this)">التخطيط</button>
+      <button class="filter-btn" style="background:#fff7ed; color:#c2410c;" onclick="filterRating('review', this)">🎯 محتاجة مراجعة</button>
+      <button class="filter-btn" style="background:#f0fdf4; color:#15803d;" onclick="filterRating('know', this)">✅ تم إتقانها</button>
+      <button class="filter-btn btn-reset" onclick="resetRatings()">🔄 إعادة ضبط التقييمات</button>
+    </div>
+  </div>
+
+  <!-- Cards Grid -->
+  <div class="cards-grid-layout" id="cardsContainer">
+
+    <!-- 30 Cards Static DOM Elements -->
+    <div class="card-box" data-id="1" data-cat="الفسيولوجيا" onclick="toggleCard(this, event)">
+      <div class="card-top-bar">
+        <span class="category-tag cat-physio">الفسيولوجيا</span>
+        <span class="status-badge" id="status-1">⚪</span>
+      </div>
+      <div class="question-text">1. ما هو التعريف العلمي للحد الأقصى لاستهلاك الأكسجين (VO2max)؟</div>
+      <div class="answer-container">
+        أعلى معدل يستطيع الجسم من خلاله امتصاص واستخدام الأكسجين أثناء التمارين الشديدة، ويتجاوز 70 مل/كجم/دقيقة لدى متسابقي النخبة.
+        <div class="rating-buttons-wrapper">
+          <button class="rate-btn rate-know" onclick="rateCard(1, 'know', event)">عرفتها ✅</button>
+          <button class="rate-btn rate-review" onclick="rateCard(1, 'review', event)">محتاجة مراجعة ❌</button>
+        </div>
+      </div>
+      <div class="click-instruction">اضغط لإظهار الإجابة 👆</div>
+    </div>
+
+    <div class="card-box" data-id="2" data-cat="الفسيولوجيا" onclick="toggleCard(this, event)">
+      <div class="card-top-bar">
+        <span class="category-tag cat-physio">الفسيولوجيا</span>
+        <span class="status-badge" id="status-2">⚪</span>
+      </div>
+      <div class="question-text">2. ما هي العوامل المركزية المؤثرة في VO2max ونسبتها؟</div>
+      <div class="answer-container">
+        تشكل 75% وتضم سعة الانتشار الرئوي، حجم الضربة (الدفع القلبي)، والقابلية على حمل الأكسجين في الدم.
+        <div class="rating-buttons-wrapper">
+          <button class="rate-btn rate-know" onclick="rateCard(2, 'know', event)">عرفتها ✅</button>
+          <button class="rate-btn rate-review" onclick="rateCard(2, 'review', event)">محتاجة مراجعة ❌</button>
+        </div>
+      </div>
+      <div class="click-instruction">اضغط لإظهار الإجابة 👆</div>
+    </div>
+
+    <div class="card-box" data-id="3" data-cat="الفسيولوجيا" onclick="toggleCard(this, event)">
+      <div class="card-top-bar">
+        <span class="category-tag cat-physio">الفسيولوجيا</span>
+        <span class="status-badge" id="status-3">⚪</span>
+      </div>
+      <div class="question-text">3. ما هي العوامل الطرفية المؤثرة في VO2max ونسبتها؟</div>
+      <div class="answer-container">
+        تشكل 25% وتضم مستويات إنزيمات الميتوكوندريا، كثافة الشعيرات الدموية، الميوجلوبين، ونوع ومقطع الألياف العضلية.
+        <div class="rating-buttons-wrapper">
+          <button class="rate-btn rate-know" onclick="rateCard(3, 'know', event)">عرفتها ✅</button>
+          <button class="rate-btn rate-review" onclick="rateCard(3, 'review', event)">محتاجة مراجعة ❌</button>
+        </div>
+      </div>
+      <div class="click-instruction">اضغط لإظهار الإجابة 👆</div>
+    </div>
+
+    <div class="card-box" data-id="4" data-cat="الفسيولوجيا" onclick="toggleCard(this, event)">
+      <div class="card-top-bar">
+        <span class="category-tag cat-physio">الفسيولوجيا</span>
+        <span class="status-badge" id="status-4">⚪</span>
+      </div>
+      <div class="question-text">4. ما هي الشدة ونسب الطاقة الهوائية واللاهوائية في سباق 800م؟</div>
+      <div class="answer-container">
+        الشدة 115 إلى 130% من VO2max، المساهمة الهوائية 60 إلى 70%، واللاهوائية 30 إلى 40%.
+        <div class="rating-buttons-wrapper">
+          <button class="rate-btn rate-know" onclick="rateCard(4, 'know', event)">عرفتها ✅</button>
+          <button class="rate-btn rate-review" onclick="rateCard(4, 'review', event)">محتاجة مراجعة ❌</button>
+        </div>
+      </div>
+      <div class="click-instruction">اضغط لإظهار الإجابة 👆</div>
+    </div>
+
+    <div class="card-box" data-id="5" data-cat="الفسيولوجيا" onclick="toggleCard(this, event)">
+      <div class="card-top-bar">
+        <span class="category-tag cat-physio">الفسيولوجيا</span>
+        <span class="status-badge" id="status-5">⚪</span>
+      </div>
+      <div class="question-text">5. ما هي الشدة ونسب الطاقة الهوائية واللاهوائية في سباق 1500م؟</div>
+      <div class="answer-container">
+        الشدة 105 إلى 115% من VO2max، المساهمة الهوائية 80 إلى 85%، واللاهوائية 15 إلى 20%.
+        <div class="rating-buttons-wrapper">
+          <button class="rate-btn rate-know" onclick="rateCard(5, 'know', event)">عرفتها ✅</button>
+          <button class="rate-btn rate-review" onclick="rateCard(5, 'review', event)">محتاجة مراجعة ❌</button>
+        </div>
+      </div>
+      <div class="click-instruction">اضغط لإظهار الإجابة 👆</div>
+    </div>
+
+    <div class="card-box" data-id="6" data-cat="الفسيولوجيا" onclick="toggleCard(this, event)">
+      <div class="card-top-bar">
+        <span class="category-tag cat-physio">الفسيولوجيا</span>
+        <span class="status-badge" id="status-6">⚪</span>
+      </div>
+      <div class="question-text">6. ما هي الشدة ونسب الطاقة الهوائية واللاهوائية في سباق 3000م؟</div>
+      <div class="answer-container">
+        الشدة 100% من VO2max، المساهمة الهوائية 85 إلى 90%، واللاهوائية 10 إلى 15%.
+        <div class="rating-buttons-wrapper">
+          <button class="rate-btn rate-know" onclick="rateCard(6, 'know', event)">عرفتها ✅</button>
+          <button class="rate-btn rate-review" onclick="rateCard(6, 'review', event)">محتاجة مراجعة ❌</button>
+        </div>
+      </div>
+      <div class="click-instruction">اضغط لإظهار الإجابة 👆</div>
+    </div>
+
+    <div class="card-box" data-id="7" data-cat="الفسيولوجيا" onclick="toggleCard(this, event)">
+      <div class="card-top-bar">
+        <span class="category-tag cat-physio">الفسيولوجيا</span>
+        <span class="status-badge" id="status-7">⚪</span>
+      </div>
+      <div class="question-text">7. ما هي الشدة ونسب الطاقة الهوائية واللاهوائية في سباق 5000م؟</div>
+      <div class="answer-container">
+        الشدة 95 إلى 100% من VO2max، المساهمة الهوائية 90 إلى 95%، واللاهوائية 5 إلى 10%.
+        <div class="rating-buttons-wrapper">
+          <button class="rate-btn rate-know" onclick="rateCard(7, 'know', event)">عرفتها ✅</button>
+          <button class="rate-btn rate-review" onclick="rateCard(7, 'review', event)">محتاجة مراجعة ❌</button>
+        </div>
+      </div>
+      <div class="click-instruction">اضغط لإظهار الإجابة 👆</div>
+    </div>
+
+    <div class="card-box" data-id="8" data-cat="الفسيولوجيا" onclick="toggleCard(this, event)">
+      <div class="card-top-bar">
+        <span class="category-tag cat-physio">الفسيولوجيا</span>
+        <span class="status-badge" id="status-8">⚪</span>
+      </div>
+      <div class="question-text">8. ما هي الشدة ونسب الطاقة الفسيولوجية في سباق 10000م؟</div>
+      <div class="answer-container">
+        الشدة 90 إلى 95% من VO2max، المساهمة الهوائية 97%، واللاهوائية 3%.
+        <div class="rating-buttons-wrapper">
+          <button class="rate-btn rate-know" onclick="rateCard(8, 'know', event)">عرفتها ✅</button>
+          <button class="rate-btn rate-review" onclick="rateCard(8, 'review', event)">محتاجة مراجعة ❌</button>
+        </div>
+      </div>
+      <div class="click-instruction">اضغط لإظهار الإجابة 👆</div>
+    </div>
+
+    <div class="card-box" data-id="9" data-cat="الفسيولوجيا" onclick="toggleCard(this, event)">
+      <div class="card-top-bar">
+        <span class="category-tag cat-physio">الفسيولوجيا</span>
+        <span class="status-badge" id="status-9">⚪</span>
+      </div>
+      <div class="question-text">9. ما هي الشدة ونسب الطاقة الفسيولوجية في سباق الماراثون؟</div>
+      <div class="answer-container">
+        الشدة 75 إلى 80% من VO2max، المساهمة الهوائية 99.9%، واللاهوائية 0.1%.
+        <div class="rating-buttons-wrapper">
+          <button class="rate-btn rate-know" onclick="rateCard(9, 'know', event)">عرفتها ✅</button>
+          <button class="rate-btn rate-review" onclick="rateCard(9, 'review', event)">محتاجة مراجعة ❌</button>
+        </div>
+      </div>
+      <div class="click-instruction">اضغط لإظهار الإجابة 👆</div>
+    </div>
+
+    <div class="card-box" data-id="10" data-cat="التكنيك" onclick="toggleCard(this, event)">
+      <div class="card-top-bar">
+        <span class="category-tag cat-tech">التكنيك</span>
+        <span class="status-badge" id="status-10">⚪</span>
+      </div>
+      <div class="question-text">10. ما هي المكونات الثلاثة الرئيسية لطول الخطوة في الجري؟</div>
+      <div class="answer-container">
+        مسافة هبوط القدم أمام الجسم، مسافة دفع القدم خلف الجسم، ومسافة الطيران في الهواء.
+        <div class="rating-buttons-wrapper">
+          <button class="rate-btn rate-know" onclick="rateCard(10, 'know', event)">عرفتها ✅</button>
+          <button class="rate-btn rate-review" onclick="rateCard(10, 'review', event)">محتاجة مراجعة ❌</button>
+        </div>
+      </div>
+      <div class="click-instruction">اضغط لإظهار الإجابة 👆</div>
+    </div>
+
+    <div class="card-box" data-id="11" data-cat="التكنيك" onclick="toggleCard(this, event)">
+      <div class="card-top-bar">
+        <span class="category-tag cat-tech">التكنيك</span>
+        <span class="status-badge" id="status-11">⚪</span>
+      </div>
+      <div class="question-text">11. ما هو خطأ الخطو الزائد (Overstriding) ولماذا يُحذر منه؟</div>
+      <div class="answer-container">
+        هبوط القدم بمسافة كبيرة أمام مركز ثقل الجسم، مما يزيد من قوى الفرملة المعطلة للحركة ويهدر الطاقة ويسبب إصابات كالتها العضلات.
+        <div class="rating-buttons-wrapper">
+          <button class="rate-btn rate-know" onclick="rateCard(11, 'know', event)">عرفتها ✅</button>
+          <button class="rate-btn rate-review" onclick="rateCard(11, 'review', event)">محتاجة مراجعة ❌</button>
+        </div>
+      </div>
+      <div class="click-instruction">اضغط لإظهار الإجابة 👆</div>
+    </div>
+
+    <div class="card-box" data-id="12" data-cat="التكنيك" onclick="toggleCard(this, event)">
+      <div class="card-top-bar">
+        <span class="category-tag cat-tech">التكنيك</span>
+        <span class="status-badge" id="status-12">⚪</span>
+      </div>
+      <div class="question-text">12. ما هي الوضعية الميكانيكية الصحيحة للجذع أثناء الجري؟</div>
+      <div class="answer-container">
+        استقرار الجذع والسيطرة عليه طوال السباق يمنع تشتت الطاقة ويضمن أقصى دفع للأمام.
+        <div class="rating-buttons-wrapper">
+          <button class="rate-btn rate-know" onclick="rateCard(12, 'know', event)">عرفتها ✅</button>
+          <button class="rate-btn rate-review" onclick="rateCard(12, 'review', event)">محتاجة مراجعة ❌</button>
+        </div>
+      </div>
+      <div class="click-instruction">اضغط لإظهار الإجابة 👆</div>
+    </div>
+
+    <div class="card-box" data-id="13" data-cat="التكنيك" onclick="toggleCard(this, event)">
+      <div class="card-top-bar">
+        <span class="category-tag cat-tech">التكنيك</span>
+        <span class="status-badge" id="status-13">⚪</span>
+      </div>
+      <div class="question-text">13. كيف تكون زاوية الركبة أثناء مرحلة دفع الأرض في المسافات المتوسطة؟</div>
+      <div class="answer-container">
+        تكون الزاوية أقل من 180 درجة ولا يحدث مد كامل، مما يدل على الدور الأكبر للعمل العضلي الخلفي.
+        <div class="rating-buttons-wrapper">
+          <button class="rate-btn rate-know" onclick="rateCard(13, 'know', event)">عرفتها ✅</button>
+          <button class="rate-btn rate-review" onclick="rateCard(13, 'review', event)">محتاجة مراجعة ❌</button>
+        </div>
+      </div>
+      <div class="click-instruction">اضغط لإظهار الإجابة 👆</div>
+    </div>
+
+    <div class="card-box" data-id="14" data-cat="التكنيك" onclick="toggleCard(this, event)">
+      <div class="card-top-bar">
+        <span class="category-tag cat-tech">التكنيك</span>
+        <span class="status-badge" id="status-14">⚪</span>
+      </div>
+      <div class="question-text">14. كيف يتم الامتصاص الصحيح عند هبوط القدم في الجري؟</div>
+      <div class="answer-container">
+        ضرب الأرض بالكعب مع انثناء سريع، وتوضع القدم أسفل الحوض مباشرة لامتصاص الوزن الكلي.
+        <div class="rating-buttons-wrapper">
+          <button class="rate-btn rate-know" onclick="rateCard(14, 'know', event)">عرفتها ✅</button>
+          <button class="rate-btn rate-review" onclick="rateCard(14, 'review', event)">محتاجة مراجعة ❌</button>
+        </div>
+      </div>
+      <div class="click-instruction">اضغط لإظهار الإجابة 👆</div>
+    </div>
+
+    <div class="card-box" data-id="15" data-cat="التكنيك" onclick="toggleCard(this, event)">
+      <div class="card-top-bar">
+        <span class="category-tag cat-tech">التكنيك</span>
+        <span class="status-badge" id="status-15">⚪</span>
+      </div>
+      <div class="question-text">15. ما الأسباب العضلية لخلل انهيار الركبة للداخل (Knee Valgus)؟</div>
+      <div class="answer-container">
+        ضعف عضلات الكاحل والقدم لامتصاص الصدمة، وضعف عضلات الحوض (خاصة الألية الوسطى).
+        <div class="rating-buttons-wrapper">
+          <button class="rate-btn rate-know" onclick="rateCard(15, 'know', event)">عرفتها ✅</button>
+          <button class="rate-btn rate-review" onclick="rateCard(15, 'review', event)">محتاجة مراجعة ❌</button>
+        </div>
+      </div>
+      <div class="click-instruction">اضغط لإظهار الإجابة 👆</div>
+    </div>
+
+    <div class="card-box" data-id="16" data-cat="الموانع" onclick="toggleCard(this, event)">
+      <div class="card-top-bar">
+        <span class="category-tag cat-steeple">الموانع</span>
+        <span class="status-badge" id="status-16">⚪</span>
+      </div>
+      <div class="question-text">16. ما هو عدد الموانع العادية والمائية في سباق 3000م موانع؟</div>
+      <div class="answer-container">
+        يواجه العداء 28 مانعاً عادياً و7 موانع مائية طوال مسافة السباق.
+        <div class="rating-buttons-wrapper">
+          <button class="rate-btn rate-know" onclick="rateCard(16, 'know', event)">عرفتها ✅</button>
+          <button class="rate-btn rate-review" onclick="rateCard(16, 'review', event)">محتاجة مراجعة ❌</button>
+        </div>
+      </div>
+      <div class="click-instruction">اضغط لإظهار الإجابة 👆</div>
+    </div>
+
+    <div class="card-box" data-id="17" data-cat="الموانع" onclick="toggleCard(this, event)">
+      <div class="card-top-bar">
+        <span class="category-tag cat-steeple">الموانع</span>
+        <span class="status-badge" id="status-17">⚪</span>
+      </div>
+      <div class="question-text">17. ما هي أبعاد وتكنيك المانع المائي في سباق الموانع؟</div>
+      <div class="answer-container">
+        عرض العارضة 3.66 متر وهي ثابتة تليها حفرة ماء، ويتطلب الارتقاء الحفاظ على مركز ثقل منخفض.
+        <div class="rating-buttons-wrapper">
+          <button class="rate-btn rate-know" onclick="rateCard(17, 'know', event)">عرفتها ✅</button>
+          <button class="rate-btn rate-review" onclick="rateCard(17, 'review', event)">محتاجة مراجعة ❌</button>
+        </div>
+      </div>
+      <div class="click-instruction">اضغط لإظهار الإجابة 👆</div>
+    </div>
+
+    <div class="card-box" data-id="18" data-cat="الموانع" onclick="toggleCard(this, event)">
+      <div class="card-top-bar">
+        <span class="category-tag cat-steeple">الموانع</span>
+        <span class="status-badge" id="status-18">⚪</span>
+      </div>
+      <div class="question-text">18. ما هو خطأ أذرع الهليكوبتر في سباق الموانع؟</div>
+      <div class="answer-container">
+        رمي الذراعين للجانبين عند تعدية المانع مما يسبب اختلال التوازن والفعالية البيوميكانيكية.
+        <div class="rating-buttons-wrapper">
+          <button class="rate-btn rate-know" onclick="rateCard(18, 'know', event)">عرفتها ✅</button>
+          <button class="rate-btn rate-review" onclick="rateCard(18, 'review', event)">محتاجة مراجعة ❌</button>
+        </div>
+      </div>
+      <div class="click-instruction">اضغط لإظهار الإجابة 👆</div>
+    </div>
+
+    <div class="card-box" data-id="19" data-cat="المشي" onclick="toggleCard(this, event)">
+      <div class="card-top-bar">
+        <span class="category-tag cat-walk">المشي</span>
+        <span class="status-badge" id="status-19">⚪</span>
+      </div>
+      <div class="question-text">19. ما هي القاعدة الأولى لسباق المشي الرياضي (القاعدة 54.2)؟</div>
+      <div class="answer-container">
+        الاتصال الدائم بالأرض بحيث لا يحدث فقدان مرئي بالعين المجردة للمتسابق.
+        <div class="rating-buttons-wrapper">
+          <button class="rate-btn rate-know" onclick="rateCard(19, 'know', event)">عرفتها ✅</button>
+          <button class="rate-btn rate-review" onclick="rateCard(19, 'review', event)">محتاجة مراجعة ❌</button>
+        </div>
+      </div>
+      <div class="click-instruction">اضغط لإظهار الإجابة 👆</div>
+    </div>
+
+    <div class="card-box" data-id="20" data-cat="المشي" onclick="toggleCard(this, event)">
+      <div class="card-top-bar">
+        <span class="category-tag cat-walk">المشي</span>
+        <span class="status-badge" id="status-20">⚪</span>
+      </div>
+      <div class="question-text">20. ما هي القاعدة الثانية لسباق المشي الرياضي فيما يخص الركبة؟</div>
+      <div class="answer-container">
+        استقامة الركبة الأمامية تماماً دون انثناء من لحظة الملامسة الأولى للأرض حتى الوضع العمودي.
+        <div class="rating-buttons-wrapper">
+          <button class="rate-btn rate-know" onclick="rateCard(20, 'know', event)">عرفتها ✅</button>
+          <button class="rate-btn rate-review" onclick="rateCard(20, 'review', event)">محتاجة مراجعة ❌</button>
+        </div>
+      </div>
+      <div class="click-instruction">اضغط لإظهار الإجابة 👆</div>
+    </div>
+
+    <div class="card-box" data-id="21" data-cat="المشي" onclick="toggleCard(this, event)">
+      <div class="card-top-bar">
+        <span class="category-tag cat-walk">المشي</span>
+        <span class="status-badge" id="status-21">⚪</span>
+      </div>
+      <div class="question-text">21. ما هو الدور الميكانيكي لحركة الحوض في سباق المشي؟</div>
+      <div class="answer-container">
+        يساعد دوران الحوض حول المحور العمودي في زيادة طول الخطوة والإيقاع ومنع الانثناء.
+        <div class="rating-buttons-wrapper">
+          <button class="rate-btn rate-know" onclick="rateCard(21, 'know', event)">عرفتها ✅</button>
+          <button class="rate-btn rate-review" onclick="rateCard(21, 'review', event)">محتاجة مراجعة ❌</button>
+        </div>
+      </div>
+      <div class="click-instruction">اضغط لإظهار الإجابة 👆</div>
+    </div>
+
+    <div class="card-box" data-id="22" data-cat="المشي" onclick="toggleCard(this, event)">
+      <div class="card-top-bar">
+        <span class="category-tag cat-walk">المشي</span>
+        <span class="status-badge" id="status-22">⚪</span>
+      </div>
+      <div class="question-text">22. ما هي نسب مكونات طول الخطوة في المشي لرجال النخبة؟</div>
+      <div class="answer-container">
+        القدم للأمام 33%، القدم خلف الجسم 39%، مسافة الطيران 14%، وحركة القدم 14%.
+        <div class="rating-buttons-wrapper">
+          <button class="rate-btn rate-know" onclick="rateCard(22, 'know', event)">عرفتها ✅</button>
+          <button class="rate-btn rate-review" onclick="rateCard(22, 'review', event)">محتاجة مراجعة ❌</button>
+        </div>
+      </div>
+      <div class="click-instruction">اضغط لإظهار الإجابة 👆</div>
+    </div>
+
+    <div class="card-box" data-id="23" data-cat="المشي" onclick="toggleCard(this, event)">
+      <div class="card-top-bar">
+        <span class="category-tag cat-walk">المشي</span>
+        <span class="status-badge" id="status-23">⚪</span>
+      </div>
+      <div class="question-text">23. متى يُرفع الكارت الأصفر والأحمر في منافسات المشي؟</div>
+      <div class="answer-container">
+        الأصفر للتحذير عند الشك في التكنيك، والأحمر يُرسل عند الملاحظة الواضحة لعدم الالتزام بالقواعد.
+        <div class="rating-buttons-wrapper">
+          <button class="rate-btn rate-know" onclick="rateCard(23, 'know', event)">عرفتها ✅</button>
+          <button class="rate-btn rate-review" onclick="rateCard(23, 'review', event)">محتاجة مراجعة ❌</button>
+        </div>
+      </div>
+      <div class="click-instruction">اضغط لإظهار الإجابة 👆</div>
+    </div>
+
+    <div class="card-box" data-id="24" data-cat="المشي" onclick="toggleCard(this, event)">
+      <div class="card-top-bar">
+        <span class="category-tag cat-walk">المشي</span>
+        <span class="status-badge" id="status-24">⚪</span>
+      </div>
+      <div class="question-text">24. كيف يُصحح خطأ الانحناء الأمامي المفرط في المشي؟</div>
+      <div class="answer-container">
+        طلب وضع اليدين مشبكتين خلف الفخذين والدفع بقوة لمساعدة العمود الفقري على المحاذاة الصحيحة.
+        <div class="rating-buttons-wrapper">
+          <button class="rate-btn rate-know" onclick="rateCard(24, 'know', event)">عرفتها ✅</button>
+          <button class="rate-btn rate-review" onclick="rateCard(24, 'review', event)">محتاجة مراجعة ❌</button>
+        </div>
+      </div>
+      <div class="click-instruction">اضغط لإظهار الإجابة 👆</div>
+    </div>
+
+    <div class="card-box" data-id="25" data-cat="التخطيط" onclick="toggleCard(this, event)">
+      <div class="card-top-bar">
+        <span class="category-tag cat-plan">التخطيط</span>
+        <span class="status-badge" id="status-25">⚪</span>
+      </div>
+      <div class="question-text">25. ما هي الشدة والهدف في المنطقة الأولى للتدريب (Z1)؟</div>
+      <div class="answer-container">
+        تكون الشدة أقل من العتبة الأولى (أقل من LT1) لتطوير القاعدة الهوائية والاستشفاء ومخاطر إصابة منخفضة.
+        <div class="rating-buttons-wrapper">
+          <button class="rate-btn rate-know" onclick="rateCard(25, 'know', event)">عرفتها ✅</button>
+          <button class="rate-btn rate-review" onclick="rateCard(25, 'review', event)">محتاجة مراجعة ❌</button>
+        </div>
+      </div>
+      <div class="click-instruction">اضغط لإظهار الإجابة 👆</div>
+    </div>
+
+    <div class="card-box" data-id="26" data-cat="التخطيط" onclick="toggleCard(this, event)">
+      <div class="card-top-bar">
+        <span class="category-tag cat-plan">التخطيط</span>
+        <span class="status-badge" id="status-26">⚪</span>
+      </div>
+      <div class="question-text">26. ما هي حدود المنطقة الثانية للتدريب (Z2)؟</div>
+      <div class="answer-container">
+        تقع الشدة بين العتبة الفسيولوجية الأولى والعتبة الثانية (بين LT1 و LT2).
+        <div class="rating-buttons-wrapper">
+          <button class="rate-btn rate-know" onclick="rateCard(26, 'know', event)">عرفتها ✅</button>
+          <button class="rate-btn rate-review" onclick="rateCard(26, 'review', event)">محتاجة مراجعة ❌</button>
+        </div>
+      </div>
+      <div class="click-instruction">اضغط لإظهار الإجابة 👆</div>
+    </div>
+
+    <div class="card-box" data-id="27" data-cat="التخطيط" onclick="toggleCard(this, event)">
+      <div class="card-top-bar">
+        <span class="category-tag cat-plan">التخطيط</span>
+        <span class="status-badge" id="status-27">⚪</span>
+      </div>
+      <div class="question-text">27. ما هي الشدة والخطورة في المنطقة الثالثة للتدريب (Z3)؟</div>
+      <div class="answer-container">
+        تكون فوق العتبة الثانية (أعلى من LT2) وذات تأثير كبير على الطاقة الهوائية القصوى ولكن بخطر إصابة أعلى.
+        <div class="rating-buttons-wrapper">
+          <button class="rate-btn rate-know" onclick="rateCard(27, 'know', event)">عرفتها ✅</button>
+          <button class="rate-btn rate-review" onclick="rateCard(27, 'review', event)">محتاجة مراجعة ❌</button>
+        </div>
+      </div>
+      <div class="click-instruction">اضغط لإظهار الإجابة 👆</div>
+    </div>
+
+    <div class="card-box" data-id="28" data-cat="التخطيط" onclick="toggleCard(this, event)">
+      <div class="card-top-bar">
+        <span class="category-tag cat-plan">التخطيط</span>
+        <span class="status-badge" id="status-28">⚪</span>
+      </div>
+      <div class="question-text">28. ما المقصود بديناميكية الأحمال (2:1، 3:1، 4:1) في الدورة الصغرى؟</div>
+      <div class="answer-container">
+        تنظيم أسابيع التدرج في الحمل المرتفع يليه أسبوع استشفاء لتسهيل عمليات التكيف البيولوجي.
+        <div class="rating-buttons-wrapper">
+          <button class="rate-btn rate-know" onclick="rateCard(28, 'know', event)">عرفتها ✅</button>
+          <button class="rate-btn rate-review" onclick="rateCard(28, 'review', event)">محتاجة مراجعة ❌</button>
+        </div>
+      </div>
+      <div class="click-instruction">اضغط لإظهار الإجابة 👆</div>
+    </div>
+
+    <div class="card-box" data-id="29" data-cat="التخطيط" onclick="toggleCard(this, event)">
+      <div class="card-top-bar">
+        <span class="category-tag cat-plan">التخطيط</span>
+        <span class="status-badge" id="status-29">⚪</span>
+      </div>
+      <div class="question-text">29. ما الفرق بين الحمل التدريبي الخارجي والحمل الداخلي؟</div>
+      <div class="answer-container">
+        الخارجي يمثل ما يُطلب كالسرعة والمسافة، بينما الداخلي هو الاستجابة الحيوية كضربات القلب ومعدل الجهد الملحوظ RPE.
+        <div class="rating-buttons-wrapper">
+          <button class="rate-btn rate-know" onclick="rateCard(29, 'know', event)">عرفتها ✅</button>
+          <button class="rate-btn rate-review" onclick="rateCard(29, 'review', event)">محتاجة مراجعة ❌</button>
+        </div>
+      </div>
+      <div class="click-instruction">اضغط لإظهار الإجابة 👆</div>
+    </div>
+
+    <div class="card-box" data-id="30" data-cat="التخطيط" onclick="toggleCard(this, event)">
+      <div class="card-top-bar">
+        <span class="category-tag cat-plan">التخطيط</span>
+        <span class="status-badge" id="status-30">⚪</span>
+      </div>
+      <div class="question-text">30. كيف يُحسب الحمل الداخلي بطريقة فوستر وطريقة Lucia TRIMP؟</div>
+      <div class="answer-container">
+        طريقة فوستر = RPE ضرب دقائق التمرين. طريقة Lucia TRIMP = (زمن المنطقة 1 x 1) + (زمن المنطقة 2 x 2) + (زمن المنطقة 3 x 3).
+        <div class="rating-buttons-wrapper">
+          <button class="rate-btn rate-know" onclick="rateCard(30, 'know', event)">عرفتها ✅</button>
+          <button class="rate-btn rate-review" onclick="rateCard(30, 'review', event)">محتاجة مراجعة ❌</button>
+        </div>
+      </div>
+      <div class="click-instruction">اضغط لإظهار الإجابة 👆</div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  let cardRatings = {};
+  let selectedCategory = 'all';
+  let selectedRatingFilter = 'all';
+
+  function initFlashcardsApp() {
+    loadRatings();
+    updateBadgesAndDashboard();
+  }
+
+  function loadRatings() {
+    try {
+      const saved = localStorage.getItem('athletics_cards_data');
+      if (saved) cardRatings = JSON.parse(saved);
+    } catch(e) { cardRatings = {}; }
+  }
+
+  function saveRatings() {
+    try {
+      localStorage.setItem('athletics_cards_data', JSON.stringify(cardRatings));
+    } catch(e) {}
+  }
+
+  function toggleCard(cardEl, event) {
+    if (event.target.tagName === 'BUTTON') return;
+    cardEl.classList.toggle('open');
+  }
+
+  function rateCard(id, type, event) {
+    event.stopPropagation();
+    cardRatings[id] = type;
+    saveRatings();
+    updateBadgesAndDashboard();
+    applyFilters();
+  }
+
+  function updateBadgesAndDashboard() {
+    let know = 0, review = 0;
+    for (let i = 1; i <= 30; i++) {
+      const statusEl = document.getElementById('status-' + i);
+      const rating = cardRatings[i];
+      if (rating === 'know') {
+        if (statusEl) statusEl.innerText = '✅';
+        know++;
+      } else if (rating === 'review') {
+        if (statusEl) statusEl.innerText = '❌';
+        review++;
+      } else {
+        if (statusEl) statusEl.innerText = '⚪';
+      }
+    }
+
+    document.getElementById('knowCount').innerText = know;
+    document.getElementById('reviewCount').innerText = review;
+    document.getElementById('unratedCount').innerText = 30 - (know + review);
+  }
+
+  function filterCategory(cat, btn) {
+    selectedCategory = cat;
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    applyFilters();
+  }
+
+  function filterRating(type, btn) {
+    selectedRatingFilter = type;
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    applyFilters();
+  }
+
+  function applyFilters() {
+    const query = document.getElementById('searchInput').value.toLowerCase();
+    const cards = document.querySelectorAll('.card-box');
+
+    cards.forEach(card => {
+      const id = card.getAttribute('data-id');
+      const cat = card.getAttribute('data-cat');
+      const text = card.innerText.toLowerCase();
+
+      const catMatch = (selectedCategory === 'all' || cat === selectedCategory);
+      const searchMatch = text.includes(query);
+      
+      let ratingMatch = true;
+      if (selectedRatingFilter === 'know') ratingMatch = (cardRatings[id] === 'know');
+      else if (selectedRatingFilter === 'review') ratingMatch = (cardRatings[id] === 'review');
+
+      if (catMatch && searchMatch && ratingMatch) {
+        card.style.display = 'flex';
+      } else {
+        card.style.display = 'none';
+      }
+    });
+  }
+
+  function resetRatings() {
+    if (confirm("هل أنت تأكد من إعاده ضبط التقييمات؟")) {
+      cardRatings = {};
+      saveRatings();
+      updateBadgesAndDashboard();
+      applyFilters();
+    }
+  }
+
+  // Initialize
+  initFlashcardsApp();
+</script>
+<!-- نهاية التطبيق -->
