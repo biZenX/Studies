@@ -168,7 +168,7 @@ function labelsFor(lang: "ar" | "en"): Labels {
   };
 }
 
-function escapeHtml(str: unknown): string {
+export function escapeHtml(str: unknown): string {
   if (str === null || str === undefined) return "";
   return String(str)
     .replace(/&/g, "&amp;")

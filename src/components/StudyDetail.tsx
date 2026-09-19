@@ -31,6 +31,13 @@ import {
 import { formatDate, localizeStudy, normalizeAr, translateCountry } from "@/lib/content";
 import type { StudyWithCount, Participant } from "@/lib/types";
 import {
+  computeStudyStats,
+  aggregateAttributeCounts,
+  filterParticipants,
+  sortParticipants,
+  type ParticipantSortOrder,
+} from "@/domain/rosterEngine";
+import {
   getStudySnapshot,
   deleteLocalStudy,
   saveLocalParticipant,
@@ -126,97 +133,35 @@ export function StudyDetail({
     [study, lang],
   );
 
-  const stats = useMemo(() => {
-    const countries = new Set<string>();
-    let withEmail = 0;
-    for (const p of participants) {
-      if (p.country) countries.add(p.country);
-      if (p.email) withEmail += 1;
-    }
-    return {
-      participants: participants.length,
-      countries: countries.size,
-      withEmail,
-    };
-  }, [participants]);
+  const stats = useMemo(() => computeStudyStats(participants), [participants]);
 
   /** Country → count, used for the breakdown chips and the filter dropdown. */
-  const countryCounts = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const p of participants) {
-      const key = (p.country ?? "").trim();
-      if (!key) continue;
-      map.set(key, (map.get(key) ?? 0) + 1);
-    }
-    return [...map.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "ar"));
-  }, [participants]);
+  const countryCounts = useMemo(
+    () => aggregateAttributeCounts(participants, "country"),
+    [participants],
+  );
 
-  const federationCounts = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const p of participants) {
-      const key = (p.federation ?? "").trim();
-      if (!key) continue;
-      map.set(key, (map.get(key) ?? 0) + 1);
-    }
-    return [...map.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "ar"));
-  }, [participants]);
+  const federationCounts = useMemo(
+    () => aggregateAttributeCounts(participants, "federation"),
+    [participants],
+  );
 
   /**
    * Search matches the raw value *and* its translation, so filtering works in
    * both languages ("الأردن" and "Jordan" hit the same rows).
    */
   const filtered = useMemo(() => {
-    const q = normalizeAr(search.trim());
+    const list = filterParticipants(
+      participants,
+      {
+        search,
+        country: countryFilter,
+        federation: federationFilter,
+      },
+      translateCountry,
+    );
 
-    let list = participants;
-
-    if (countryFilter !== "all") {
-      list = list.filter((p) => (p.country ?? "").trim() === countryFilter);
-    }
-    if (federationFilter !== "all") {
-      list = list.filter((p) => (p.federation ?? "").trim() === federationFilter);
-    }
-
-    if (q) {
-      list = list.filter((p) => {
-        const haystack = [
-          p.name,
-          p.country ?? "",
-          translateCountry(p.country, "en"),
-          p.federation ?? "",
-          translateCountry(p.federation, "en"),
-          p.email ?? "",
-          p.phone ?? "",
-          p.code ?? "",
-        ]
-          .map((v) => normalizeAr(String(v ?? "")))
-          .join(" \u0001 ");
-        return haystack.includes(q);
-      });
-    }
-
-    const sorted = [...list];
-    switch (sortKey) {
-      case "name":
-        sorted.sort((a, b) => a.name.localeCompare(b.name, lang === "en" ? "en" : "ar"));
-        break;
-      case "country":
-        sorted.sort(
-          (a, b) =>
-            (a.country ?? "").localeCompare(b.country ?? "", "ar") ||
-            a.name.localeCompare(b.name, "ar"),
-        );
-        break;
-      case "newest":
-        sorted.sort(
-          (a, b) =>
-            new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime(),
-        );
-        break;
-      default:
-        break;
-    }
-    return sorted;
+    return sortParticipants(list, sortKey as ParticipantSortOrder, lang);
   }, [participants, search, countryFilter, federationFilter, sortKey, lang]);
 
   const validEmails = useMemo(
@@ -667,20 +612,53 @@ export function StudyDetail({
         )}
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-[var(--border)] pt-3 text-[11px] font-bold text-[var(--text-tertiary)]">
-          <span className="num">
-            {t("showingOf")} {filtered.length} {t("of")} {participants.length}
-            {activeFilters > 0 && ` — ${t("filters")}: ${activeFilters}`}
-          </span>
-          {activeFilters > 0 && (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="num">
+              {t("showingOf")} {filtered.length} {t("of")} {participants.length}
+              {activeFilters > 0 && ` — ${t("filters")}: ${activeFilters}`}
+            </span>
+            {activeFilters > 0 && (
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="rounded-full bg-[var(--bg)] px-2.5 py-1 font-bold text-[var(--text-secondary)] hover:text-[var(--text)]"
+                data-testid="clear-filters"
+              >
+                {t("clearFilters")}
+              </button>
+            )}
+          </div>
+
+          <div
+            className="flex items-center rounded-xl bg-slate-100 p-0.5"
+            role="group"
+            aria-label="View mode"
+          >
             <button
               type="button"
-              onClick={clearFilters}
-              className="rounded-full bg-[var(--bg)] px-2.5 py-1 font-bold text-[var(--text-secondary)] hover:text-[var(--text)]"
-              data-testid="clear-filters"
+              onClick={() => setViewOverride("table")}
+              aria-pressed={!showCards}
+              className={`rounded-lg px-2.5 py-1 text-xs font-bold transition ${
+                !showCards
+                  ? "bg-white text-[var(--accent-strong)] shadow-2xs"
+                  : "text-[var(--text-secondary)] hover:text-[var(--text)]"
+              }`}
             >
-              {t("clearFilters")}
+              {lang === "en" ? "Table" : "جدول"}
             </button>
-          )}
+            <button
+              type="button"
+              onClick={() => setViewOverride("cards")}
+              aria-pressed={showCards}
+              className={`rounded-lg px-2.5 py-1 text-xs font-bold transition ${
+                showCards
+                  ? "bg-white text-[var(--accent-strong)] shadow-2xs"
+                  : "text-[var(--text-secondary)] hover:text-[var(--text)]"
+              }`}
+            >
+              {lang === "en" ? "Cards" : "بطاقات"}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -804,8 +782,8 @@ export function StudyDetail({
         ) : (
           <div className="table-scroll overflow-x-auto" data-testid="roster-table">
             <table className="w-full min-w-[720px] border-collapse text-start">
-              <thead>
-                <tr className="border-b border-[var(--border)] bg-[var(--bg)]/70 text-xs text-[var(--text-secondary)]">
+              <thead className="sticky top-0 z-10 bg-slate-50 shadow-2xs">
+                <tr className="border-b border-[var(--border)] text-xs text-[var(--text-secondary)]">
                   <th className="px-4 py-3.5 text-start font-bold lg:px-5">#</th>
                   <th className="px-4 py-3.5 text-start font-bold lg:px-5">{t("name")}</th>
                   <th className="px-4 py-3.5 text-start font-bold lg:px-5">{t("federation")}</th>

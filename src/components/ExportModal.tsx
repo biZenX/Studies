@@ -110,6 +110,7 @@ export function ExportModal({
 
   const [options, setOptions] = useState<ExportOptions>(DEFAULT_EXPORT_OPTIONS);
   const [langOverride, setLangOverride] = useState<"ar" | "en" | null>(null);
+  const [mobileTab, setMobileTab] = useState<"options" | "preview">("options");
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const [previewHtml, setPreviewHtml] = useState("");
@@ -227,9 +228,39 @@ export function ExportModal({
           </p>
         )}
 
+        {/* Mobile Tab Switcher */}
+        <div className="flex rounded-xl bg-[var(--bg)] p-1 lg:hidden">
+          <button
+            type="button"
+            onClick={() => setMobileTab("options")}
+            className={`flex-1 rounded-lg py-2 text-xs font-bold transition ${
+              mobileTab === "options"
+                ? "bg-white text-[var(--accent-strong)] shadow-2xs"
+                : "text-[var(--text-secondary)] hover:text-[var(--text)]"
+            }`}
+          >
+            {lang === "en" ? "Export Options" : "خيارات التصدير"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setMobileTab("preview")}
+            className={`flex-1 rounded-lg py-2 text-xs font-bold transition ${
+              mobileTab === "preview"
+                ? "bg-white text-[var(--accent-strong)] shadow-2xs"
+                : "text-[var(--text-secondary)] hover:text-[var(--text)]"
+            }`}
+          >
+            {lang === "en" ? "Live Preview" : "المعاينة المباشرة"}
+          </button>
+        </div>
+
         <div className="grid gap-4 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
           {/* ------------------------- Options ------------------------- */}
-          <div className="space-y-4 lg:max-h-[62vh] lg:overflow-y-auto lg:ps-1">
+          <div
+            className={`space-y-4 lg:max-h-[58vh] lg:overflow-y-auto lg:ps-1 ${
+              mobileTab === "options" ? "block" : "hidden lg:block"
+            }`}
+          >
             <section className="rounded-2xl border border-[var(--border)] p-3">
               <h4 className="mb-2.5 text-xs font-extrabold text-[var(--text)]">
                 {t("exportColumns")}
@@ -432,10 +463,30 @@ export function ExportModal({
                 </span>
               </label>
             </section>
+
+            {/* Quick action on mobile to switch to preview */}
+            <div className="flex gap-2 lg:hidden">
+              <button
+                type="button"
+                onClick={() => setMobileTab("preview")}
+                className="btn-ghost w-full text-xs font-bold"
+              >
+                {lang === "en" ? "View Preview" : "الانتقال للمعاينة"}
+              </button>
+              <button
+                type="button"
+                onClick={handleDownload}
+                disabled={busy}
+                className="btn-primary flex w-full items-center justify-center gap-1.5 text-xs font-bold"
+              >
+                <IconDownload size={14} />
+                <span>{t("download")}</span>
+              </button>
+            </div>
           </div>
 
           {/* ------------------------- Preview ------------------------- */}
-          <div className="min-w-0">
+          <div className={`min-w-0 ${mobileTab === "preview" ? "block" : "hidden lg:block"}`}>
             <div className="mb-1.5 flex items-center justify-between">
               <span className="text-xs font-extrabold text-[var(--text)]">
                 {t("livePreview")}
@@ -458,7 +509,7 @@ export function ExportModal({
                 title="Export preview"
                 srcDoc={open ? previewHtml : ""}
                 sandbox="allow-scripts"
-                className="h-[46vh] w-full bg-white sm:h-[52vh] lg:h-[62vh]"
+                className="h-[46vh] w-full bg-white sm:h-[50vh] lg:h-[56vh]"
               />
             </div>
 

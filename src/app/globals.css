@@ -231,8 +231,11 @@ input[type="date"].input {
 }
 
 @media (max-width: 640px) {
+  input.input,
+  select.input,
+  textarea.input,
   .input {
-    font-size: 16px;
+    font-size: 16px !important;
   }
 }
 

@@ -24,6 +24,7 @@ import {
 } from "./ui";
 import type { StudyWithCount, Stats, Participant } from "@/lib/types";
 import { formatDate, localizeStudy } from "@/lib/content";
+import { filterAndSortStudies } from "@/domain/rosterEngine";
 import {
   getDashboardSnapshot,
   getStudySnapshot,
@@ -83,39 +84,12 @@ export function StudiesDashboard({
   const [saving, setSaving] = useState(false);
 
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-
-    const list = studies.filter((s) => {
-      const localized = localizeStudy(s, lang);
-      const matchesSearch =
-        !q ||
-        localized.title.toLowerCase().includes(q) ||
-        s.title.toLowerCase().includes(q) ||
-        String(s.year ?? "").toLowerCase().includes(q) ||
-        (localized.description ?? "").toLowerCase().includes(q) ||
-        (s.description ?? "").toLowerCase().includes(q);
-
-      const matchesStatus = statusFilter === "all" || s.status === statusFilter;
-      return matchesSearch && matchesStatus;
+    return filterAndSortStudies(studies, {
+      search,
+      status: statusFilter,
+      sort: sortKey,
+      lang,
     });
-
-    const sorted = [...list];
-    switch (sortKey) {
-      case "title":
-        sorted.sort((a, b) =>
-          localizeStudy(a, lang).title.localeCompare(localizeStudy(b, lang).title, lang),
-        );
-        break;
-      case "participants":
-        sorted.sort((a, b) => b.participantCount - a.participantCount);
-        break;
-      default:
-        sorted.sort(
-          (a, b) =>
-            new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime(),
-        );
-    }
-    return sorted;
   }, [studies, search, statusFilter, sortKey, lang]);
 
   const openCreate = () => setModalOpen(true);

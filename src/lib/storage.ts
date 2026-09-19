@@ -1,5 +1,6 @@
 import { DEFAULT_STUDY, DEFAULT_PARTICIPANTS } from "./seed-data";
 import type { Study, Participant, StudyWithCount, Stats } from "./types";
+import { computeGlobalStats } from "@/domain/rosterEngine";
 
 const STUDIES_KEY = "studies_app_studies_v3";
 const PARTICIPANTS_KEY = "studies_app_participants_v3";
@@ -57,10 +58,23 @@ export function subscribeStorage(callback: Listener): () => void {
   };
 }
 
-function loadFromLocal<T>(key: string): T | null {
+function getSafeStorage(): Storage | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = localStorage.getItem(key);
+    const testKey = "__storage_test__";
+    window.localStorage.setItem(testKey, "1");
+    window.localStorage.removeItem(testKey);
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+function loadFromLocal<T>(key: string): T | null {
+  try {
+    const storage = getSafeStorage();
+    if (!storage) return null;
+    const raw = storage.getItem(key);
     if (!raw) return null;
     return JSON.parse(raw) as T;
   } catch {
@@ -73,13 +87,16 @@ function loadFromLocal<T>(key: string): T | null {
  * Callers must keep working from memory so the UI never looks "stuck".
  */
 function saveToLocal<T>(key: string, data: T): boolean {
-  if (typeof window === "undefined") return false;
   try {
-    localStorage.setItem(key, JSON.stringify(data));
+    const storage = getSafeStorage();
+    if (!storage) return false;
+    storage.setItem(key, JSON.stringify(data));
     return true;
   } catch (err) {
-    console.warn("Error saving to localStorage:", err);
+    console.warn("Error saving to localStorage, attempting fallback without timestamps:", err);
     try {
+      const storage = getSafeStorage();
+      if (!storage) return false;
       // Retry without the (large, non-essential) timestamps.
       const slim = Array.isArray(data)
         ? data.map((row: any) => {
@@ -87,7 +104,7 @@ function saveToLocal<T>(key: string, data: T): boolean {
             return rest;
           })
         : data;
-      localStorage.setItem(key, JSON.stringify(slim));
+      storage.setItem(key, JSON.stringify(slim));
       return true;
     } catch {
       return false;
@@ -151,7 +168,8 @@ export function initializeLocalStorage(): {
     LEGACY_KEYS[1],
   );
 
-  const alreadySeeded = localStorage.getItem(SEEDED_KEY) === "1";
+  const storage = getSafeStorage();
+  const alreadySeeded = storage?.getItem(SEEDED_KEY) === "1";
 
   // Only seed on a genuine first run. Re-seeding whenever the studies list
   // happens to be empty is what used to resurrect deleted rows.
@@ -194,8 +212,8 @@ export function initializeLocalStorage(): {
   saveToLocal(STUDIES_KEY, studies);
   saveToLocal(PARTICIPANTS_KEY, participants);
   try {
-    localStorage.setItem(SEEDED_KEY, "1");
-    LEGACY_KEYS.forEach((k) => localStorage.removeItem(k));
+    storage?.setItem(SEEDED_KEY, "1");
+    LEGACY_KEYS.forEach((k) => storage?.removeItem(k));
   } catch {
     /* ignore */
   }
@@ -258,13 +276,9 @@ export function getLocalDashboardData(): {
   const { studies, participants } = initializeLocalStorage();
 
   const countMap = new Map<number, number>();
-  const countries = new Set<string>();
-  let withEmail = 0;
-
-  for (const p of participants) {
-    countMap.set(p.studyId, (countMap.get(p.studyId) ?? 0) + 1);
-    if (p.country) countries.add(p.country);
-    if (p.email) withEmail += 1;
+  for (let i = 0; i < participants.length; i++) {
+    const sid = participants[i].studyId;
+    countMap.set(sid, (countMap.get(sid) ?? 0) + 1);
   }
 
   const studiesWithCount: StudyWithCount[] = studies.map((s) => ({
@@ -274,12 +288,7 @@ export function getLocalDashboardData(): {
 
   return {
     studies: studiesWithCount,
-    stats: {
-      studies: studies.length,
-      participants: participants.length,
-      countries: countries.size,
-      withEmail,
-    },
+    stats: computeGlobalStats(studiesWithCount, participants),
   };
 }
 

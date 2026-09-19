@@ -1,30 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
-import { IBM_Plex_Sans_Arabic, Inter, Cairo } from "next/font/google";
 import "./globals.css";
 import { AppShell } from "@/components/AppShell";
 import { PwaRegister } from "@/components/PwaRegister";
-
-const ibmPlexArabic = IBM_Plex_Sans_Arabic({
-  subsets: ["arabic"],
-  weight: ["300", "400", "500", "600", "700"],
-  variable: "--font-ibm-plex-arabic",
-  display: "swap",
-});
-
-const cairo = Cairo({
-  subsets: ["arabic", "latin"],
-  weight: ["600", "700", "800", "900"],
-  variable: "--font-cairo",
-  display: "swap",
-});
-
-const inter = Inter({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  variable: "--font-inter",
-  display: "swap",
-});
 
 export const metadata: Metadata = {
   title: "سجل الدراسات",
@@ -58,11 +36,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html
-      lang="ar"
-      dir="rtl"
-      className={`${ibmPlexArabic.variable} ${cairo.variable} ${inter.variable}`}
-    >
+    <html lang="ar" dir="rtl">
       <body className="antialiased selection:bg-emerald-100 selection:text-emerald-900">
         <PwaRegister />
         <AppShell>{children}</AppShell>
