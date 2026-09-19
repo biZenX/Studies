@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Modal, IconDownload, IconPrinter, Spinner, IconCheckCircle } from "./ui";
+import { Modal, IconDownload, Spinner, IconCheckCircle } from "./ui";
 import { useLang } from "./lang";
 import { useToast } from "./toast";
 import {
@@ -10,7 +10,6 @@ import {
   downloadStudyReport,
   generateStudyHtmlReport,
   openStudyReport,
-  printStudyReport,
   type ExportOptions,
   type ExportTheme,
 } from "@/lib/exporter";
@@ -184,11 +183,6 @@ export function ExportModal({
         errorToast(t("exportFailed"));
       }
     });
-  };
-
-  const handlePrint = () => {
-    const ok = printStudyReport(effectiveStudy, participants, effectiveOptions);
-    if (!ok) errorToast(t("exportFailed"));
   };
 
   const handleOpenTab = () => {
@@ -397,11 +391,6 @@ export function ExportModal({
                   onChange={(v) => set("showSearch", v)}
                 />
                 <Toggle
-                  label={t("printInFile")}
-                  checked={options.showPrint}
-                  onChange={(v) => set("showPrint", v)}
-                />
-                <Toggle
                   label={t("renumberRows")}
                   checked={options.renumberOnFilter}
                   onChange={(v) => set("renumberOnFilter", v)}
@@ -485,14 +474,6 @@ export function ExportModal({
                 <span>
                   {busy ? t("downloading") : done ? t("exportSuccess") : t("download")}
                 </span>
-              </button>
-              <button
-                type="button"
-                onClick={handlePrint}
-                className="btn-ghost flex items-center gap-1.5 !px-3.5 !py-2.5 text-xs font-bold"
-              >
-                <IconPrinter size={14} />
-                {t("print")}
               </button>
               <button
                 type="button"

@@ -117,14 +117,6 @@ export const IconFilter = ({ className, size = 18 }: IconProps) => (
   </svg>
 );
 
-export const IconPrinter = ({ className, size = 18 }: IconProps) => (
-  <svg {...svgProps(size, className)}>
-    <polyline points="6 9 6 2 18 2 18 9" />
-    <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
-    <rect x="6" y="14" width="12" height="8" />
-  </svg>
-);
-
 export const IconCheckCircle = ({ className, size = 18 }: IconProps) => (
   <svg {...svgProps(size, className)}>
     <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
