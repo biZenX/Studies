@@ -143,7 +143,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <LangProvider>
       <ToastProvider>
-        <div className="flex min-h-dvh w-full">
+        {/* min-h-dvh only — never fixed height, so the document can always grow and scroll */}
+        <div className="flex min-h-dvh w-full flex-col lg:flex-row">
           <Sidebar />
           <div className="flex min-w-0 flex-1 flex-col">
             <MobileBar />
