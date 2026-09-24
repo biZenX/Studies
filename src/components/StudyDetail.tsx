@@ -1,1 +1,1 @@
-LOAD_FROM_FILE:/tmp/StudyDetail_push.tsx
+PLACEHOLDER
