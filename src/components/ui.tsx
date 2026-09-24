@@ -173,18 +173,6 @@ export const IconUser = ({ className, size = 18 }: IconProps) => (
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-/**
- * Dialog shell shared by every popup in the app.
- *
- * - Header with optional icon + subtitle, scrollable body and a *sticky*
- *   footer, so the action buttons never scroll out of reach on long forms.
- * - Bottom sheet on phones (slides up, respects the safe area), centred card
- *   on larger screens.
- * - Focus is moved inside on open, trapped while open (Tab cycles) and handed
- *   back to the opener on close. Escape closes; a backdrop click closes unless
- *   `closeOnBackdrop` is false.
- * - Background scrolling is locked without the layout jumping.
- */
 export function Modal({
   open,
   onClose,
@@ -206,23 +194,17 @@ export function Modal({
   subtitle?: string;
   icon?: ReactNode;
   children: ReactNode;
-  /** Rendered outside the scroll area so it is always visible. */
   footer?: ReactNode;
-  /** Absolutely positioned layer covering the whole panel (confirm prompts…). */
   overlay?: ReactNode;
-  /** @deprecated use `size="xl"` */
   wide?: boolean;
   size?: "md" | "lg" | "xl";
   testId?: string;
   closeOnBackdrop?: boolean;
-  /** Focus the first field on open (skipped on touch devices to keep the keyboard closed). */
   autoFocus?: boolean;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const subtitleId = useId();
-  // Latest close handler, readable from the long-lived key/backdrop listeners
-  // without re-binding them (and without re-running the open effect) every render.
   const onCloseRef = useRef(onClose);
   useEffect(() => {
     onCloseRef.current = onClose;
@@ -241,7 +223,6 @@ export function Modal({
       }
       if (e.key !== "Tab" || !panelRef.current) return;
 
-      // Keep Tab inside the dialog.
       const nodes = Array.from(panelRef.current.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
         (el) => el.offsetParent !== null || el === document.activeElement,
       );
@@ -260,8 +241,6 @@ export function Modal({
     };
     document.addEventListener("keydown", onKey);
 
-    // Lock background scrolling without losing the scrollbar width (prevents the
-    // page from jumping and from becoming unscrollable after the modal closes).
     const html = document.documentElement;
     const body = document.body;
     const prev = {
@@ -275,8 +254,6 @@ export function Modal({
     body.style.overflow = "hidden";
     if (scrollbar > 0) body.style.paddingInlineEnd = `${scrollbar}px`;
 
-    // Move focus inside. Fine pointers only: on phones an auto-focused input
-    // pops the keyboard over the sheet before the user can even read it.
     const finePointer =
       typeof window.matchMedia === "function" && window.matchMedia("(pointer: fine)").matches;
     const frame = requestAnimationFrame(() => {
@@ -299,7 +276,6 @@ export function Modal({
       html.style.overflow = prev.htmlOverflow;
       body.style.overflow = prev.bodyOverflow;
       body.style.paddingInlineEnd = prev.paddingInlineEnd;
-      // Hand focus back to whatever opened the dialog.
       if (opener && typeof opener.focus === "function" && document.contains(opener)) {
         opener.focus({ preventScroll: true });
       }
@@ -309,14 +285,12 @@ export function Modal({
   if (!open) return null;
 
   const width =
-    size === "xl" || wide ? "sm:max-w-4xl" : size === "lg" ? "sm:max-w-2xl" : "sm:max-w-lg";
+    size === "xl" || wide ? "sm:max-w-3xl" : size === "lg" ? "sm:max-w-xl" : "sm:max-w-md";
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-end justify-center bg-slate-900/55 p-0 backdrop-blur-[1px] sm:items-center sm:p-4"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-3 sm:p-6"
       onMouseDown={(e) => {
-        // Only a click that starts *and* ends on the backdrop closes the dialog,
-        // so selecting text inside a field and releasing outside does not.
         if (!closeOnBackdrop || e.target !== e.currentTarget) return;
         const onUp = (up: MouseEvent) => {
           document.removeEventListener("mouseup", onUp);
@@ -334,16 +308,11 @@ export function Modal({
         aria-describedby={subtitle ? subtitleId : undefined}
         tabIndex={-1}
         data-testid={testId ?? "modal"}
-        className={`modal-panel card relative flex max-h-[94dvh] w-full flex-col overflow-hidden rounded-t-3xl bg-white outline-none sm:max-h-[90dvh] sm:rounded-3xl ${width}`}
+        className={`modal-panel card relative flex max-h-[min(88dvh,720px)] w-full flex-col overflow-hidden rounded-2xl bg-white outline-none sm:max-h-[min(85dvh,680px)] sm:rounded-2xl ${width}`}
       >
-        {/* Grab handle — phones only */}
-        <div className="flex justify-center pt-2.5 sm:hidden" aria-hidden="true">
-          <span className="h-1.5 w-12 rounded-full bg-slate-200" />
-        </div>
-
-        <div className="flex shrink-0 items-start gap-3 border-b border-[var(--border)] px-4 py-3.5 sm:px-6 sm:py-4">
+        <div className="flex shrink-0 items-start gap-2.5 border-b border-[var(--border)] px-4 py-3 sm:px-5 sm:py-3.5">
           {icon && (
-            <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[var(--accent-tint)] text-[var(--accent-strong)]">
+            <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--accent-tint)] text-[var(--accent-strong)]">
               {icon}
             </div>
           )}
@@ -357,7 +326,7 @@ export function Modal({
             {subtitle && (
               <p
                 id={subtitleId}
-                className="mt-1 text-[11px] leading-relaxed text-[var(--text-secondary)] sm:text-xs"
+                className="mt-0.5 text-[11px] leading-relaxed text-[var(--text-secondary)] sm:text-xs"
               >
                 {subtitle}
               </p>
@@ -375,7 +344,7 @@ export function Modal({
         </div>
 
         <div
-          className="modal-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6 sm:py-5"
+          className="modal-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3 sm:px-5 sm:py-4"
           style={{ WebkitOverflowScrolling: "touch" }}
         >
           {children}
@@ -383,7 +352,7 @@ export function Modal({
 
         {footer && (
           <div
-            className="shrink-0 border-t border-[var(--border)] bg-white/95 px-4 py-3 sm:px-6 sm:py-4"
+            className="shrink-0 border-t border-[var(--border)] bg-white px-4 py-3 sm:px-5"
             style={{ paddingBottom: "max(env(safe-area-inset-bottom), 12px)" }}
           >
             {footer}
@@ -397,10 +366,6 @@ export function Modal({
   );
 }
 
-/**
- * Inline "you have unsaved changes" prompt rendered *inside* a modal, so the
- * user never loses a half-filled form to a stray backdrop click.
- */
 export function DiscardPrompt({
   open,
   title,
@@ -421,7 +386,7 @@ export function DiscardPrompt({
   if (!open) return null;
   return (
     <div
-      className="absolute inset-0 z-10 flex items-center justify-center bg-white/80 p-4 backdrop-blur-[2px]"
+      className="absolute inset-0 z-10 flex items-center justify-center bg-white/80 p-4"
       role="alertdialog"
       aria-label={title}
       data-testid="discard-prompt"
@@ -454,7 +419,6 @@ export function DiscardPrompt({
   );
 }
 
-/** Small uppercase-style heading that separates groups of fields in a form. */
 export function FormSection({
   title,
   hint,
@@ -487,7 +451,6 @@ export function FormSection({
   );
 }
 
-/** Radio-like button row used for the study status. */
 export function SegmentedControl<T extends string>({
   value,
   options,
@@ -521,7 +484,7 @@ export function SegmentedControl<T extends string>({
             data-testid={testId ? `${testId}-${opt.value}` : undefined}
             className={`flex min-h-[40px] items-center justify-center gap-1.5 rounded-xl px-2 py-2 text-center text-xs font-bold transition ${
               selected
-                ? "bg-white text-[var(--accent-strong)] shadow-xs ring-1 ring-emerald-200"
+                ? "bg-white text-[var(--accent-strong)] shadow-sm ring-1 ring-emerald-200"
                 : "text-[var(--text-secondary)] hover:text-[var(--text)]"
             }`}
           >
@@ -557,48 +520,34 @@ export function CountryBadge({ country, label }: { country: string; label?: stri
     "السودان": "#fde68a",
   };
 
-  // Stable colour for any country not in the curated palette.
   const fallbackTints = ["#e0f2fe", "#fce7f3", "#ecfccb", "#fef9c3", "#ede9fe", "#ffedd5"];
   let hash = 0;
-  for (let i = 0; i < country.length; i++) hash = (hash * 31 + country.charCodeAt(i)) >>> 0;
-
-  const bg = palette[country] ?? fallbackTints[hash % fallbackTints.length];
+  for (let i = 0; i < country.length; i++) hash = (hash * 31 + country.charCodeAt(i)) | 0;
+  const bg = palette[country] ?? fallbackTints[Math.abs(hash) % fallbackTints.length];
 
   return (
     <span
-      className="inline-flex max-w-full items-center rounded-full px-2.5 py-1 text-[11px] font-bold sm:px-3 sm:text-xs"
-      style={{ background: bg, color: "rgba(15,23,42,0.78)" }}
+      className="inline-flex max-w-full items-center truncate rounded-full px-2.5 py-0.5 text-[11px] font-bold text-[var(--text)]"
+      style={{ background: bg }}
       title={label ?? country}
     >
-      <span className="truncate">{label ?? country}</span>
+      {label ?? country}
     </span>
   );
 }
 
-export function StatusBadge({
-  status,
-  label,
-}: {
-  status: string;
-  label?: string;
-}) {
-  const map: Record<string, { label: string; bg: string; color: string }> = {
-    active: { label: "نشطة", bg: "#dcfce7", color: "#166534" },
-    upcoming: { label: "قادمة", bg: "#dbeafe", color: "#1d4ed8" },
-    closed: { label: "مكتملة", bg: "#fee2e2", color: "#991b1b" },
-    draft: { label: "مسودة", bg: "#f1f5f9", color: "#475569" },
-  };
-  const s = map[status] ?? map.draft;
+const STATUS_STYLE: Record<string, { color: string; label: string }> = {
+  active: { color: "#10b981", label: "active" },
+  closed: { color: "#64748b", label: "closed" },
+  draft: { color: "#a855f7", label: "draft" },
+  upcoming: { color: "#0ea5e9", label: "upcoming" },
+};
+
+export function StatusBadge({ status, label }: { status: string; label?: string }) {
+  const s = STATUS_STYLE[status] ?? { color: "#94a3b8", label: status };
   return (
-    <span
-      className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold"
-      style={{ background: s.bg, color: s.color }}
-      data-status={status}
-    >
-      <span
-        className="h-1.5 w-1.5 rounded-full"
-        style={{ background: s.color }}
-      />
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-1 text-[11px] font-bold text-[var(--text)] ring-1 ring-[var(--border)]">
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: s.color }} />
       {label ?? s.label}
     </span>
   );
@@ -617,13 +566,9 @@ export function Field({
   label: string;
   children: ReactNode;
   required?: boolean;
-  /** Small helper text under the control. */
   hint?: string;
-  /** Validation message — replaces the hint and turns the control red. */
   error?: string;
-  /** Text shown after the label, e.g. "optional". */
   optional?: string;
-  /** Use "div" when the control is not a single input (a date pair, a button row…). */
   as?: "label" | "div";
   className?: string;
 }) {
