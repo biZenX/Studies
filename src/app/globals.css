@@ -12,7 +12,6 @@
   --accent-tint: #ecfdf5;
   --accent-tint-2: #d1fae5;
   --danger: #ef4444;
-  /* Brand navy — used for document/report titles. */
   --navy: #0b2545;
   --navy-soft: #123a6b;
   --radius: 18px;
@@ -26,16 +25,14 @@
 }
 
 /* ------------------------------------------------------------------ *
- * Scrolling
- * The document must always be scrollable, on every viewport.
- * `overflow-x: hidden` on <body> is what breaks `position: sticky` (and
- * silently kills page scroll) in several browsers — `clip` does not.
+ * Scrolling — document must always scroll on every viewport.
+ * Never use overflow-x:hidden on html/body (breaks sticky + scroll).
  * ------------------------------------------------------------------ */
 html {
   scroll-behavior: smooth;
-  overflow-y: auto;
+  overflow-y: auto !important;
   overflow-x: clip;
-  height: auto;
+  height: auto !important;
   min-height: 100%;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
@@ -51,13 +48,14 @@ body {
   text-rendering: optimizeLegibility;
   letter-spacing: normal;
   overflow-x: clip;
-  overflow-y: auto;
+  overflow-y: auto !important;
   min-height: 100dvh;
+  height: auto !important;
   margin: 0;
   position: relative;
 }
 
-/* Any nested scroller keeps working on touch devices. */
+/* Nested scrollers on touch devices */
 .scroll-area,
 .modal-scroll,
 .overflow-auto,
@@ -66,6 +64,14 @@ body {
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
   scrollbar-width: thin;
+}
+
+/* Force modal body to scroll even when parent flex is constrained */
+.modal-scroll {
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
 }
 
 [dir="rtl"],
@@ -98,11 +104,6 @@ body {
   background-clip: content-box;
 }
 
-/* ------------------------------------------------------------------ *
- * Surfaces — solid instead of frosted glass.
- * Backdrop blur is expensive on phones/low-end GPUs and was the main
- * reason the layout felt unusable on some devices.
- * ------------------------------------------------------------------ */
 .glass {
   background: #ffffff;
 }
@@ -114,9 +115,8 @@ body {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px -12px rgba(0, 0, 0, 0.08);
 }
 
-/* Document/report title: centred, larger than everything around it, navy. */
 .doc-title {
-  font-family: var(--font-cairo), "Cairo", var(--font-ibm-plex-arabic);
+  font-family: var(--font-ibm-plex-arabic), "Cairo", sans-serif;
   color: var(--navy);
   text-align: center;
   font-weight: 800;
@@ -132,45 +132,25 @@ body {
   background: linear-gradient(90deg, var(--accent), var(--navy));
 }
 
-/* Animations */
 @keyframes fade-up {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 .animate-fade-up {
   animation: fade-up 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @keyframes scale-in {
-  from {
-    opacity: 0;
-    transform: scale(0.96);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
 }
 .animate-scale-in {
   animation: scale-in 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-/* Dialogs: slide up as a sheet on phones, scale in as a card elsewhere. */
 @keyframes sheet-up {
-  from {
-    opacity: 0;
-    transform: translateY(28px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(28px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 .modal-panel {
   animation: sheet-up 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
@@ -182,37 +162,25 @@ body {
 }
 
 @keyframes toast-in {
-  from {
-    opacity: 0;
-    transform: translateY(14px) scale(0.97);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
+  from { opacity: 0; transform: translateY(14px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 .animate-toast-in {
   animation: toast-in 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  html {
-    scroll-behavior: auto;
-  }
+  html { scroll-behavior: auto; }
   .animate-fade-up,
   .animate-scale-in,
   .animate-toast-in,
   .modal-panel {
     animation: none !important;
   }
-  * {
-    transition-duration: 0.01ms !important;
-  }
+  * { transition-duration: 0.01ms !important; }
 }
 
-/* ------------------------------------------------------------------ *
- * Form controls
- * ------------------------------------------------------------------ */
+/* Form controls */
 .input {
   width: 100%;
   border: 1px solid var(--border);
@@ -225,7 +193,6 @@ body {
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
   font-family: inherit;
   min-height: 44px;
-  /* 16px stops iOS Safari from zooming the whole page on focus. */
   max-width: 100%;
 }
 .input::placeholder {
@@ -249,7 +216,6 @@ select.input {
 }
 input[type="date"].input {
   min-height: 44px;
-  /* Native date pickers ignore `dir`; keep the digits readable in RTL. */
   direction: ltr;
   text-align: start;
 }
@@ -258,14 +224,12 @@ input[type="date"].input::-webkit-calendar-picker-indicator {
   opacity: 0.7;
 }
 
-/* Validation state — set on the wrapping Field. */
 .field-error .input,
 .input[aria-invalid="true"] {
   border-color: var(--danger);
   box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.1);
 }
 
-/* Schedule progress (study period: from → to) */
 .progress-track {
   position: relative;
   height: 6px;
@@ -283,6 +247,7 @@ input[type="date"].input::-webkit-calendar-picker-indicator {
   transition: width 0.4s ease;
 }
 
+/* Prevent iOS zoom on focus */
 @media (max-width: 640px) {
   input.input,
   select.input,
@@ -373,21 +338,19 @@ input[type="date"].input::-webkit-calendar-picker-indicator {
   cursor: not-allowed;
 }
 
-/* Focus visibility for keyboard users */
 :where(a, button, input, select, textarea, [tabindex]):focus-visible {
   outline: 2px solid var(--accent-strong);
   outline-offset: 2px;
   border-radius: 8px;
 }
 
-/* Numbers always use tabular Latin digits so columns line up. */
 .num {
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum";
 }
 
 /* ------------------------------------------------------------------ *
- * Small screens
+ * Responsive — work on phones, tablets, laptops, large screens
  * ------------------------------------------------------------------ */
 @media (max-width: 640px) {
   .card {
@@ -395,9 +358,23 @@ input[type="date"].input::-webkit-calendar-picker-indicator {
   }
 }
 
-/* ------------------------------------------------------------------ *
- * Print — printing the app itself should give a clean roster page.
- * ------------------------------------------------------------------ */
+/* Very small phones */
+@media (max-width: 380px) {
+  .btn-primary,
+  .btn-ghost,
+  .btn-danger {
+    padding-inline: 14px;
+    font-size: 0.875rem;
+  }
+}
+
+/* Large / ultrawide screens — keep content readable */
+@media (min-width: 1600px) {
+  .card {
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 12px 32px -14px rgba(0, 0, 0, 0.1);
+  }
+}
+
 @media print {
   .no-print,
   aside,
