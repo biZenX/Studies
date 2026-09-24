@@ -61,6 +61,7 @@ function Toggle({
   );
 }
 
+/** In-app choice chips — never opens the OS native picker. */
 function Select<T extends string>({
   value,
   onChange,
@@ -73,20 +74,32 @@ function Select<T extends string>({
   label: string;
 }) {
   return (
-    <label className="block">
-      <span className="mb-1 block text-[11px] font-bold text-[var(--text-tertiary)]">{label}</span>
-      <select
-        className="input !py-1.5 !text-xs"
-        value={value}
-        onChange={(e) => onChange(e.target.value as T)}
+    <div className="block" role="group" aria-label={label}>
+      <span className="mb-1.5 block text-[11px] font-bold text-[var(--text-tertiary)]">{label}</span>
+      <div
+        className="grid gap-1 rounded-xl border border-[var(--border)] bg-[var(--bg)] p-1"
+        style={{ gridTemplateColumns: `repeat(${Math.min(options.length, 3)}, minmax(0, 1fr))` }}
       >
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-    </label>
+        {options.map((o) => {
+          const selected = o.value === value;
+          return (
+            <button
+              key={o.value}
+              type="button"
+              onClick={() => onChange(o.value)}
+              aria-pressed={selected}
+              className={`min-h-[36px] rounded-lg px-2 py-1.5 text-center text-[11px] font-bold transition ${
+                selected
+                  ? "bg-white text-[var(--accent-strong)] shadow-sm ring-1 ring-emerald-200"
+                  : "text-[var(--text-secondary)] hover:text-[var(--text)]"
+              }`}
+            >
+              {o.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -99,9 +112,7 @@ export function ExportModal({
 }: {
   open: boolean;
   study?: StudyShape | null;
-  /** Rows that will actually end up in the file (may already be filtered). */
   participants: Participant[];
-  /** Full roster size, used to point out that a filter is narrowing the export. */
   totalCount?: number;
   onClose: () => void;
 }) {
@@ -117,14 +128,11 @@ export function ExportModal({
   const [previewHtml, setPreviewHtml] = useState("");
   const [prevOpen, setPrevOpen] = useState(false);
 
-  // Reset the "downloaded" badge whenever the dialog is re-opened. Adjusting
-  // state during render keeps this out of an effect.
   if (open !== prevOpen) {
     setPrevOpen(open);
     if (!open) setDone(false);
   }
 
-  // The exported document follows the UI language unless one is picked here.
   const effectiveOptions = useMemo<ExportOptions>(
     () => ({ ...options, lang: langOverride ?? lang }),
     [options, langOverride, lang],
@@ -144,7 +152,6 @@ export function ExportModal({
     };
   }, [study, localized]);
 
-  /** Debounced live preview so dragging toggles stays smooth. */
   useEffect(() => {
     if (!open) return;
     const handle = setTimeout(() => {
@@ -174,7 +181,6 @@ export function ExportModal({
 
   const handleDownload = () => {
     setBusy(true);
-    // Let the spinner paint first — generation is synchronous but fast.
     requestAnimationFrame(() => {
       const ok = downloadStudyReport(effectiveStudy, participants, effectiveOptions);
       setBusy(false);
@@ -201,7 +207,6 @@ export function ExportModal({
 
   const col = options.columns;
 
-  /** How many rows actually carry each optional value. */
   const counts = useMemo(
     () => ({
       code: participants.filter((p) => (p.code ?? "").trim()).length,
@@ -212,7 +217,7 @@ export function ExportModal({
   );
 
   return (
-    <Modal open={open} onClose={onClose} title={t("exportTitle")} wide testId="export-modal">
+    <Modal open={open} onClose={onClose} title={t("exportTitle")} size="lg" testId="export-modal">
       <div className="space-y-4">
         <p className="text-xs leading-relaxed text-[var(--text-secondary)]">{t("exportSub")}</p>
 
@@ -229,14 +234,13 @@ export function ExportModal({
           </p>
         )}
 
-        {/* Mobile Tab Switcher */}
         <div className="flex rounded-xl bg-[var(--bg)] p-1 lg:hidden">
           <button
             type="button"
             onClick={() => setMobileTab("options")}
             className={`flex-1 rounded-lg py-2 text-xs font-bold transition ${
               mobileTab === "options"
-                ? "bg-white text-[var(--accent-strong)] shadow-2xs"
+                ? "bg-white text-[var(--accent-strong)] shadow-sm"
                 : "text-[var(--text-secondary)] hover:text-[var(--text)]"
             }`}
           >
@@ -247,7 +251,7 @@ export function ExportModal({
             onClick={() => setMobileTab("preview")}
             className={`flex-1 rounded-lg py-2 text-xs font-bold transition ${
               mobileTab === "preview"
-                ? "bg-white text-[var(--accent-strong)] shadow-2xs"
+                ? "bg-white text-[var(--accent-strong)] shadow-sm"
                 : "text-[var(--text-secondary)] hover:text-[var(--text)]"
             }`}
           >
@@ -255,61 +259,28 @@ export function ExportModal({
           </button>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
-          {/* ------------------------- Options ------------------------- */}
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,300px)_minmax(0,1fr)]">
           <div
-            className={`space-y-4 lg:max-h-[58vh] lg:overflow-y-auto lg:ps-1 ${
+            className={`space-y-3 lg:max-h-[55vh] lg:overflow-y-auto lg:ps-1 ${
               mobileTab === "options" ? "block" : "hidden lg:block"
             }`}
           >
             <section className="rounded-2xl border border-[var(--border)] p-3">
-              <h4 className="mb-2.5 text-xs font-extrabold text-[var(--text)]">
-                {t("exportColumns")}
-              </h4>
+              <h4 className="mb-2.5 text-xs font-extrabold text-[var(--text)]">{t("exportColumns")}</h4>
               <div className="grid gap-1.5">
-                <Toggle
-                  label={`# — ${t("serial")}`}
-                  checked={col.serial}
-                  onChange={(v) => setColumn("serial", v)}
-                />
-                <Toggle
-                  label={t("name")}
-                  checked={col.name}
-                  onChange={(v) => setColumn("name", v)}
-                />
-                <Toggle
-                  label={t("federation")}
-                  checked={col.federation}
-                  onChange={(v) => setColumn("federation", v)}
-                />
-                <Toggle
-                  label={t("country")}
-                  checked={col.country}
-                  onChange={(v) => setColumn("country", v)}
-                />
-                <Toggle
-                  label={`${t("code")} (${counts.code})`}
-                  checked={col.code}
-                  onChange={(v) => setColumn("code", v)}
-                />
-                <Toggle
-                  label={`${t("email")} (${counts.email})`}
-                  checked={col.email}
-                  onChange={(v) => setColumn("email", v)}
-                />
-                <Toggle
-                  label={`${t("phone")} (${counts.phone})`}
-                  checked={col.phone}
-                  onChange={(v) => setColumn("phone", v)}
-                />
+                <Toggle label={`# — ${t("serial")}`} checked={col.serial} onChange={(v) => setColumn("serial", v)} />
+                <Toggle label={t("name")} checked={col.name} onChange={(v) => setColumn("name", v)} />
+                <Toggle label={t("federation")} checked={col.federation} onChange={(v) => setColumn("federation", v)} />
+                <Toggle label={t("country")} checked={col.country} onChange={(v) => setColumn("country", v)} />
+                <Toggle label={`${t("code")} (${counts.code})`} checked={col.code} onChange={(v) => setColumn("code", v)} />
+                <Toggle label={`${t("email")} (${counts.email})`} checked={col.email} onChange={(v) => setColumn("email", v)} />
+                <Toggle label={`${t("phone")} (${counts.phone})`} checked={col.phone} onChange={(v) => setColumn("phone", v)} />
               </div>
             </section>
 
             <section className="rounded-2xl border border-[var(--border)] p-3">
-              <h4 className="mb-2.5 text-xs font-extrabold text-[var(--text)]">
-                {t("exportLayout")}
-              </h4>
-              <div className="grid grid-cols-2 gap-2">
+              <h4 className="mb-2.5 text-xs font-extrabold text-[var(--text)]">{t("exportLayout")}</h4>
+              <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
                 <Select
                   label={t("date")}
                   value={options.dateMode}
@@ -371,9 +342,7 @@ export function ExportModal({
               </div>
 
               <div className="mt-3">
-                <span className="mb-1.5 block text-[11px] font-bold text-[var(--text-tertiary)]">
-                  {t("exportTheme")}
-                </span>
+                <span className="mb-1.5 block text-[11px] font-bold text-[var(--text-tertiary)]">{t("exportTheme")}</span>
                 <div className="flex flex-wrap gap-1.5">
                   {themeOptions.map((th) => (
                     <button
@@ -386,10 +355,7 @@ export function ExportModal({
                           : "border-[var(--border)] bg-white text-[var(--text-secondary)] hover:border-slate-300"
                       }`}
                     >
-                      <span
-                        className="h-3 w-3 rounded-full"
-                        style={{ background: th.swatch }}
-                      />
+                      <span className="h-3 w-3 rounded-full" style={{ background: th.swatch }} />
                       {th.label}
                     </button>
                   ))}
@@ -398,45 +364,15 @@ export function ExportModal({
             </section>
 
             <section className="rounded-2xl border border-[var(--border)] p-3">
-              <h4 className="mb-2.5 text-xs font-extrabold text-[var(--text)]">
-                {t("exportExtras")}
-              </h4>
+              <h4 className="mb-2.5 text-xs font-extrabold text-[var(--text)]">{t("exportExtras")}</h4>
               <div className="grid gap-1.5">
-                <Toggle
-                  label={t("statsSummary")}
-                  checked={options.showStats}
-                  onChange={(v) => set("showStats", v)}
-                />
-                <Toggle
-                  label={t("countryBreakdown")}
-                  checked={options.showCountryBreakdown}
-                  onChange={(v) => set("showCountryBreakdown", v)}
-                />
-                <Toggle
-                  label={t("groupRows")}
-                  checked={options.groupByCountry}
-                  onChange={(v) => set("groupByCountry", v)}
-                />
-                <Toggle
-                  label={t("searchInFile")}
-                  checked={options.showSearch}
-                  onChange={(v) => set("showSearch", v)}
-                />
-                <Toggle
-                  label={t("renumberRows")}
-                  checked={options.renumberOnFilter}
-                  onChange={(v) => set("renumberOnFilter", v)}
-                />
-                <Toggle
-                  label={t("zebraRows")}
-                  checked={options.zebra}
-                  onChange={(v) => set("zebra", v)}
-                />
-                <Toggle
-                  label={t("footerLine")}
-                  checked={options.showFooterNote}
-                  onChange={(v) => set("showFooterNote", v)}
-                />
+                <Toggle label={t("statsSummary")} checked={options.showStats} onChange={(v) => set("showStats", v)} />
+                <Toggle label={t("countryBreakdown")} checked={options.showCountryBreakdown} onChange={(v) => set("showCountryBreakdown", v)} />
+                <Toggle label={t("groupRows")} checked={options.groupByCountry} onChange={(v) => set("groupByCountry", v)} />
+                <Toggle label={t("searchInFile")} checked={options.showSearch} onChange={(v) => set("showSearch", v)} />
+                <Toggle label={t("renumberRows")} checked={options.renumberOnFilter} onChange={(v) => set("renumberOnFilter", v)} />
+                <Toggle label={t("zebraRows")} checked={options.zebra} onChange={(v) => set("zebra", v)} />
+                <Toggle label={t("footerLine")} checked={options.showFooterNote} onChange={(v) => set("showFooterNote", v)} />
               </div>
 
               {options.showFooterNote && (
@@ -449,9 +385,7 @@ export function ExportModal({
               )}
 
               <label className="mt-3 block">
-                <span className="mb-1 block text-[11px] font-bold text-[var(--text-tertiary)]">
-                  {t("exportFileName")}
-                </span>
+                <span className="mb-1 block text-[11px] font-bold text-[var(--text-tertiary)]">{t("exportFileName")}</span>
                 <input
                   className="input !py-1.5 !text-xs"
                   dir="ltr"
@@ -465,13 +399,8 @@ export function ExportModal({
               </label>
             </section>
 
-            {/* Quick action on mobile to switch to preview */}
             <div className="flex gap-2 lg:hidden">
-              <button
-                type="button"
-                onClick={() => setMobileTab("preview")}
-                className="btn-ghost w-full text-xs font-bold"
-              >
+              <button type="button" onClick={() => setMobileTab("preview")} className="btn-ghost w-full text-xs font-bold">
                 {lang === "en" ? "View Preview" : "الانتقال للمعاينة"}
               </button>
               <button
@@ -486,64 +415,41 @@ export function ExportModal({
             </div>
           </div>
 
-          {/* ------------------------- Preview ------------------------- */}
           <div className={`min-w-0 ${mobileTab === "preview" ? "block" : "hidden lg:block"}`}>
             <div className="mb-1.5 flex items-center justify-between">
-              <span className="text-xs font-extrabold text-[var(--text)]">
-                {t("livePreview")}
-              </span>
+              <span className="text-xs font-extrabold text-[var(--text)]">{t("livePreview")}</span>
               <span className="num text-[11px] font-bold text-[var(--text-tertiary)]">
-                {typeof totalCount === "number" && totalCount !== participants.length ? (
-                  <>
-                    {participants.length} / {totalCount} {t("participants")}
-                  </>
-                ) : (
-                  <>
-                    {participants.length} {t("participants")}
-                  </>
-                )}
+                {participants.length} {t("participants")}
               </span>
             </div>
             <div className="overflow-hidden rounded-2xl border border-[var(--border)] bg-slate-100">
               <iframe
                 ref={iframeRef}
-                title="Export preview"
-                srcDoc={open ? previewHtml : ""}
-                sandbox="allow-scripts"
-                className="h-[46vh] w-full bg-white sm:h-[50vh] lg:h-[56vh]"
+                title="export-preview"
+                srcDoc={previewHtml}
+                className="h-[40vh] w-full bg-white sm:h-[46vh] lg:h-[52vh]"
               />
             </div>
-
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={handleDownload}
                 disabled={busy}
                 className="btn-primary flex items-center gap-2 !px-5 !py-2.5 text-xs font-extrabold"
-                data-testid="export-download"
               >
                 {busy ? <Spinner size={15} /> : done ? <IconCheckCircle size={15} /> : <IconDownload size={15} />}
-                <span>
-                  {busy ? t("downloading") : done ? t("exportSuccess") : t("download")}
-                </span>
+                <span>{t("download")}</span>
               </button>
-              <button
-                type="button"
-                onClick={handleOpenTab}
-                className="btn-ghost flex items-center gap-1.5 !px-3.5 !py-2.5 text-xs font-bold"
-              >
+              <button type="button" onClick={handleOpenTab} className="btn-ghost flex items-center gap-1.5 !px-3.5 !py-2.5 text-xs font-bold">
                 {t("openInNewTab")}
               </button>
+              {done && (
+                <p className="mt-0 flex items-center gap-1.5 text-[11px] font-bold text-emerald-700">
+                  <IconCheckCircle size={13} />
+                  <span className="num" dir="ltr">{fileName}</span>
+                </p>
+              )}
             </div>
-
-            {done && (
-              <p className="mt-2 flex items-center gap-1.5 text-[11px] font-bold text-emerald-700">
-                <IconCheckCircle size={13} />
-                <span className="num" dir="ltr">
-                  {fileName}
-                </span>
-              </p>
-            )}
           </div>
         </div>
       </div>
