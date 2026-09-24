@@ -30,7 +30,7 @@ function LangSwitch({ compact = false }: { compact?: boolean }) {
   const { lang, setLang } = useLang();
 
   const base = compact
-    ? "px-3 py-1.5 min-h-[36px] text-xs"
+    ? "px-2.5 py-1.5 min-h-[34px] text-xs"
     : "py-2 min-h-[40px] text-xs";
 
   return (
@@ -45,7 +45,7 @@ function LangSwitch({ compact = false }: { compact?: boolean }) {
         aria-pressed={lang === "ar"}
         className={`inline-flex flex-1 items-center justify-center rounded-full font-bold transition ${base} ${
           lang === "ar"
-            ? "bg-white text-[var(--accent-strong)] shadow-xs"
+            ? "bg-white text-[var(--accent-strong)] shadow-sm"
             : "text-[var(--text-tertiary)] hover:text-[var(--text)]"
         }`}
       >
@@ -57,7 +57,7 @@ function LangSwitch({ compact = false }: { compact?: boolean }) {
         aria-pressed={lang === "en"}
         className={`inline-flex flex-1 items-center justify-center rounded-full font-bold transition ${base} ${
           lang === "en"
-            ? "bg-white text-[var(--accent-strong)] shadow-xs"
+            ? "bg-white text-[var(--accent-strong)] shadow-sm"
             : "text-[var(--text-tertiary)] hover:text-[var(--text)]"
         }`}
       >
@@ -73,35 +73,35 @@ function Sidebar() {
   const isHome = pathname === "/";
 
   return (
-    <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col border-e border-[var(--border)] bg-white lg:flex">
-      <div className="flex items-center gap-3 px-6 pt-8 pb-6">
-        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-600 to-teal-600 text-white shadow-md shadow-emerald-600/20">
-          <AcademicLogo size={22} />
+    <aside className="sticky top-0 hidden h-dvh w-[240px] shrink-0 flex-col border-e border-[var(--border)] bg-white lg:flex">
+      <div className="flex items-center gap-3 px-5 pt-7 pb-5">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-600 to-teal-600 text-white shadow-sm shadow-emerald-600/20">
+          <AcademicLogo size={20} />
         </div>
         <div className="min-w-0">
-          <p className="truncate text-base font-bold text-[var(--text)]">{t("appName")}</p>
-          <p className="truncate text-[11px] font-medium text-[var(--text-tertiary)]">
+          <p className="truncate text-[15px] font-bold leading-tight text-[var(--text)]">{t("appName")}</p>
+          <p className="mt-0.5 truncate text-[11px] font-medium text-[var(--text-tertiary)]">
             {t("appTagline")}
           </p>
         </div>
       </div>
 
-      <nav className="flex flex-1 flex-col gap-1.5 overflow-y-auto px-4 pt-2">
+      <nav className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 pt-1">
         <Link
           href="/"
-          className={`flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold transition ${
+          className={`flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-sm font-semibold transition ${
             isHome
-              ? "bg-[var(--accent-tint)] text-[var(--accent-strong)] shadow-2xs"
+              ? "bg-[var(--accent-tint)] text-[var(--accent-strong)]"
               : "text-[var(--text-secondary)] hover:bg-[var(--bg)] hover:text-[var(--text)]"
           }`}
         >
-          <IconLayers size={18} />
+          <IconLayers size={17} />
           <span>{t("allStudies")}</span>
         </Link>
       </nav>
 
-      <div className="border-t border-[var(--border)] px-4 py-4">
-        <div className="mb-2.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
+      <div className="border-t border-[var(--border)] px-3 py-4">
+        <div className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
           {t("language")}
         </div>
         <LangSwitch />
@@ -116,19 +116,19 @@ function MobileBar() {
   const isHome = pathname === "/";
 
   return (
-    <header className="sticky top-0 z-30 flex items-center justify-between gap-2 border-b border-[var(--border)] bg-white px-3 py-2.5 lg:hidden">
+    <header className="sticky top-0 z-30 flex items-center justify-between gap-2 border-b border-[var(--border)] bg-white/95 px-3 py-2.5 backdrop-blur-sm lg:hidden">
       <Link href="/" className="flex min-w-0 items-center gap-2.5">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-600 to-teal-600 text-white shadow-sm">
-          <AcademicLogo size={18} />
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-600 to-teal-600 text-white shadow-sm">
+          <AcademicLogo size={16} />
         </span>
         <span className="truncate text-sm font-bold text-[var(--text)]">{t("appName")}</span>
       </Link>
 
-      <div className="flex shrink-0 items-center gap-2">
+      <div className="flex shrink-0 items-center gap-1.5">
         {!isHome && (
           <Link
             href="/"
-            className="rounded-full bg-[var(--bg)] px-3 py-1.5 text-xs font-bold text-[var(--text-secondary)] hover:text-[var(--text)]"
+            className="rounded-full bg-[var(--bg)] px-2.5 py-1.5 text-xs font-bold text-[var(--text-secondary)] hover:text-[var(--text)]"
           >
             {t("allStudies")}
           </Link>
@@ -143,13 +143,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <LangProvider>
       <ToastProvider>
-        {/* min-h-dvh only — never fixed height, so the document can always grow and scroll */}
         <div className="flex min-h-dvh w-full flex-col lg:flex-row">
           <Sidebar />
           <div className="flex min-w-0 flex-1 flex-col">
             <MobileBar />
-            <main className="min-w-0 flex-1 px-3 py-4 sm:px-5 sm:py-6 lg:px-8 lg:py-8 xl:px-10">
-              <div className="mx-auto w-full max-w-[1600px]">{children}</div>
+            <main className="min-w-0 flex-1 px-3 py-4 sm:px-5 sm:py-5 lg:px-7 lg:py-6 xl:px-9">
+              <div className="mx-auto w-full max-w-[1400px]">{children}</div>
             </main>
           </div>
         </div>
