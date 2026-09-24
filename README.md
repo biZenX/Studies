@@ -12,15 +12,15 @@
 ```text
                     ┌──────────────┐
                     │   AppShell   │  header + لغة + عنوان
-                    └──────┬───────┘
-           ┌───────────────┼───────────────┐
+                    └──────┬──────┘
+           ┌──────────────┼───────────────┐
            ▼               ▼               ▼
      ┌──────────┐   ┌────────────┐  ┌─────────────┐
      │ Dashboard│   │Study Detail│  │ Study Edit  │
      │ الدراسات │   │   الكشف    │  │   تعديل     │
      └────┬─────┘   └─────┬──────┘  └─────────────┘
           │               │
-          │         ┌─────┴──────────────────┐
+          │         ┌─────┼───────────────────┐
           │         ▼          ▼        ▼    ▼
           │    Participant  Import   Export Email
           │      Modal      Modal    Modal  Modal
@@ -70,14 +70,15 @@ npm run dev
 
 | البند | الحالة |
 |-------|--------|
-| Scroll الصفحة | محسّن |
-| Modal في المنتصف + scroll داخلي | محسّن |
-| ExportModal بدون قائمة نظام | ✅ |
-| فلاتر Dashboard / Detail / Import (native select) | قيد الاستبدال بـ AppSelect |
-| Responsive على كل الشاشات (موبايل → دسكتوب) | جاري |
-| مساحات / padding / hierarchy | جاري |
+| Scroll الصفحة | ✅ |
+| Modal في المنتصف + scroll داخلي | ✅ |
+| ExportModal بدون قائمة نظام | ✅ chips |
+| فلاتر Dashboard / Detail / Import | ✅ AppSelect (صفر native select) |
+| Responsive (موبايل → دسكتوب) | ✅ أساسي جاهز — راقب في المتصفح |
+| مساحات / padding / hierarchy | ✅ tokens موجودة — راقب الاتساق |
 
-التفاصيل والسطور → [CODEMAP.md](./CODEMAP.md)
+التفاصيل والسطور → [CODEMAP.md](./CODEMAP.md)  
+خطة التنفيذ → [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md)
 
 ---
 
@@ -87,16 +88,3 @@ npm run dev
 2. **Mobile first** ثم التابلت والدسكتوب  
 3. **بساطة للوالد** — أزرار واضحة، نصوص قصيرة  
 4. **اتساق** — نفس الـ Modal ونفس أنماط الأزرار في كل الشاشات  
-5. **Clean separation** — `domain` منفصل عن الـ UI  
-
----
-
-## ملاحظة عن الخط في README
-
-GitHub يعرض Markdown بخطوط النظام فقط؛  
-لا يمكن فرض خط handwriting على README المعروض على github.com.  
-الخط المستخدم **داخل التطبيق** هو IBM Plex Sans Arabic كما هو مطلوب.
-
----
-
-صُمم ليكون واضحاً وعملياً — وأي إصلاح جديد يُسجَّل في `CODEMAP.md`.

@@ -1,24 +1,24 @@
 # 🗺️ Studies — Code Map & Error Inventory
 
-> مسح كامل للمشروع (Scanning) — خريطة الملفات + كشف أخطاء UI/UX
-> آخر تحديث: 2026-09-24
+> مسح كامل للمشروع (Scanning) — خريطة الملفات + كشف أخطاء UI/UX  
+> **آخر تحديث: 2026-09-25** (بعد إزالة كل native selects + استعادة StudyDetail)
 
 ---
 
 ## 1. خريطة الموقع (Site Architecture)
 
 ```
-┌─────────────────────────────────────────────────────────────┐
+┌────────────────────────────────────────────────────────────┐
 │                        Browser / PWA                         │
 │                   (rhmanbit.workers.dev)                     │
-└──────────────────────────┬──────────────────────────────────┘
+└────────────────────────────┬─────────────────────────────────┘
                            │
               ┌────────────▼────────────┐
               │   src/app/layout.tsx     │  ← Shell + Fonts + Providers
               │   AppShell + Lang + Toast│
               └────────────┬────────────┘
                            │
-         ┌─────────────────┼─────────────────┐
+         ┌────────────────┼────────────────┐
          │                 │                 │
     ┌────▼────┐      ┌─────▼─────┐    ┌──────▼──────┐
     │  /      │      │ /studies  │    │ /studies/id │
@@ -63,7 +63,7 @@ Domain logic (pure, no UI):
 | ملف | الدور | ملاحظات |
 |-----|-------|---------|
 | `layout.tsx` | Root layout, خطوط IBM Plex Sans Arabic | OK |
-| `globals.css` | Design tokens, scroll, inputs | يحتاج مراجعة spacing scale |
+| `globals.css` | Design tokens (`--s-1`…`--s-9`), scroll, inputs | OK |
 | `page.tsx` | الصفحة الرئيسية → Dashboard | OK |
 | `loading.tsx` / `error.tsx` / `not-found.tsx` | حالات النظام | OK |
 | `studies/[id]/page.tsx` | صفحة تفاصيل دراسة | OK |
@@ -73,17 +73,17 @@ Domain logic (pure, no UI):
 
 | ملف | الحجم | الدور | حالة UI |
 |-----|-------|-------|---------|
-| `ui.tsx` | ~19KB | Modal, Buttons, Icons, primitives | Modal مُحسَّن جزئياً |
-| `AppShell.tsx` | ~5KB | Header + main layout | OK بعد تعديلات scroll |
-| `StudiesDashboard.tsx` | ~19KB | قائمة الدراسات + بحث + فرز | ⚠️ native `<select>` للفرز |
-| `StudyDetail.tsx` | ~44KB | كشف المشاركين + فلاتر | ⚠️ 3× native `<select>` |
-| `StudyForm.tsx` | ~16KB | إنشاء دراسة | مراجعة spacing |
-| `StudyEditForm.tsx` | ~8KB | تعديل دراسة | OK نسبياً |
+| `ui.tsx` | ~19KB | Modal, AppSelect, Buttons, Icons | ✅ Modal + AppSelect جاهزين |
+| `AppShell.tsx` | ~5KB | Header + main layout | OK |
+| `StudiesDashboard.tsx` | ~19KB | قائمة الدراسات + بحث + فرز | ✅ AppSelect للفرز |
+| `StudyDetail.tsx` | ~44KB | كشف المشاركين + فلاتر | ✅ 3× AppSelect (دولة/اتحاد/فرز) |
+| `StudyForm.tsx` | ~16KB | إنشاء دراسة | OK |
+| `StudyEditForm.tsx` | ~8KB | تعديل دراسة | OK |
 | `StudyModal.tsx` | ~5KB | غلاف modal لإنشاء دراسة | يعتمد على Modal |
 | `ParticipantModal.tsx` | ~10KB | إضافة/تعديل مشارك | يعتمد على Modal |
-| `ImportModal.tsx` | ~26KB | استيراد Excel/CSV | ⚠️ native `<select>` لربط الأعمدة |
-| `ExportModal.tsx` | ~19KB | تصدير HTML | ✅ تم استبدال selects بـ chips |
-| `EmailModal.tsx` | ~11KB | إرسال بريد (Brevo) | مراجعة |
+| `ImportModal.tsx` | ~26KB | استيراد Excel/CSV | ✅ AppSelect لربط الأعمدة |
+| `ExportModal.tsx` | ~19KB | تصدير HTML | ✅ chips (لا select) |
+| `EmailModal.tsx` | ~11KB | إرسال بريد (Brevo) | OK |
 | `lang.tsx` | ~3KB | تبديل AR/EN | OK |
 | `toast.tsx` | ~5KB | إشعارات | OK |
 | `PwaRegister.tsx` | ~2KB | Service Worker | OK |
@@ -130,65 +130,65 @@ Domain logic (pure, no UI):
 
 ---
 
-## 3. كشف الأخطاء (Error Inventory)
+## 3. كشف الأخطاء (Error Inventory) — محدّث 2026-09-25
 
 ### حرج — Native OS Controls (قوائم النظام)
 
-المشكلة: `<select>` يفتح قائمة أندرويد/iOS السوداء — مش جزء من تصميم الموقع.
+| # | الملف | الاستخدام | الحالة |
+|---|-------|-----------|--------|
+| 1 | `ExportModal.tsx` | لغة، ورق، اتجاه... | ✅ chips |
+| 2 | `StudiesDashboard.tsx` | فرز القائمة | ✅ AppSelect |
+| 3 | `StudyDetail.tsx` | فلتر دولة | ✅ AppSelect |
+| 4 | `StudyDetail.tsx` | فلتر اتحاد | ✅ AppSelect |
+| 5 | `StudyDetail.tsx` | فرز المشاركين | ✅ AppSelect |
+| 6 | `ImportModal.tsx` | ربط عمود Excel | ✅ AppSelect |
 
-| # | الملف | السطور تقريباً | الاستخدام | الحل |
-|---|-------|----------------|-----------|------|
-| 1 | `ExportModal.tsx` | كان ~78 | لغة، ورق، اتجاه... | ✅ **تم** → Choice chips |
-| 2 | `StudiesDashboard.tsx` | ~286 | فرز القائمة | ⏳ استبدال بـ AppSelect |
-| 3 | `StudyDetail.tsx` | ~631 | فلتر دولة | ⏳ AppSelect (قائمة ديناميكية) |
-| 4 | `StudyDetail.tsx` | ~650 | فلتر اتحاد | ⏳ AppSelect |
-| 5 | `StudyDetail.tsx` | ~669 | فرز المشاركين | ⏳ AppSelect / chips |
-| 6 | `ImportModal.tsx` | ~68 | ربط عمود Excel | ⏳ AppSelect (ديناميكي) |
+**النتيجة:** `grep -rn '<select' src/` → **صفر** نتائج. لا توجد قوائم نظام.
 
 ### متوسط — Modal / Scroll / Responsive
 
 | # | المشكلة | أين | الحالة |
 |---|---------|-----|--------|
-| 7 | الصفحة مش بتعمل scroll على بعض الأجهزة | `globals.css` + AppShell | ✅ جزئي (dvh + overflow) |
-| 8 | الـ popup ينزل لأسفل ويحتاج scroll طويل | `ui.tsx` Modal | ✅ جزئي (items-center + max-h) |
-| 9 | الـ modal مش بيسكرول جوا بالكامل | `.modal-scroll` | ✅ جزئي |
-| 10 | على PC لازم تصغير 30% عشان تشوف الكل | Modal max-width + content density | ⏳ يحتاج ضبط size + padding |
-| 11 | الـ backdrop / الإضاءة | Modal overlay | ✅ `bg-black/40` |
-| 12 | spacing / margin / padding غير متسق | Dashboard, Detail, Forms | ⏳ Design system scale |
-| 13 | أزرار/حقول أقل من 44px touch target | أماكن متعددة | ⏳ |
+| 7 | الصفحة مش بتعمل scroll | `globals.css` + AppShell | ✅ `overflow-y: auto !important` + `100dvh` |
+| 8 | الـ popup ينزل لأسفل | `ui.tsx` Modal | ✅ `items-center` + `max-h-[min(90dvh,820px)]` |
+| 9 | الـ modal مش بيسكرول جوا | `.modal-scroll` | ✅ `min-h-0 flex-1 overflow-y-auto overscroll-contain` |
+| 10 | على PC لازم تصغير 30% | Modal max-width + density | ⏳ راقب في browser loop |
+| 11 | الـ backdrop | Modal overlay | ✅ `bg-black/40` |
+| 12 | spacing / margin / padding | Dashboard, Detail, Forms | ✅ tokens موجودة (`--s-1`…`--s-9`) — راقب الاتساق |
+| 13 | أزرار/حقول أقل من 44px | أماكن متعددة | ✅ AppSelect `min-h-[44px]` — راقب الباقي |
 
-### تحسينات UI/UX
+### تحسينات UI/UX (P1/P2)
 
 | # | البند | ملاحظة |
 |---|-------|--------|
-| 14 | Mobile-first incomplete | بعض الجريدات تبدأ desktop |
-| 15 | Hierarchy بصرية ضعيفة في StudyDetail | البطاقة العلوية مزدحمة |
-| 16 | النصوص الطويلة للوالد | تبسيط النسخ في i18n |
-| 17 | Consistency في border-radius | خلط 14px / 16px / 2xl |
-| 18 | Empty states | بعض الشاشات فاضية بدون توجيه |
+| 14 | Mobile-first | معظم الشاشات responsive بالفعل |
+| 15 | Hierarchy بصرية في StudyDetail | البطاقة العلوية — راقب الكثافة |
+| 16 | النصوص الطويلة للوالد | تبسيط i18n لاحقاً |
+| 17 | Consistency في border-radius | tokens: 12/16/20 |
+| 18 | Empty states | موجودة في Dashboard + Detail |
 
 ---
 
 ## 4. خطة الإصلاح حسب الأولوية
 
 ```
-اليوم (P0)
+تم (P0) — 2026-09-25
 ├── ✅ ExportModal → chips
-├── ⏳ ui.tsx → مكوّن AppSelect موحّد (dropdown داخل التطبيق)
-├── ⏳ StudiesDashboard sort select
-├── ⏳ StudyDetail filters (3)
-├── ⏳ ImportModal column mapper
-└── ⏳ مراجعة Modal على desktop (zoom 100%)
+├── ✅ ui.tsx → AppSelect موحّد
+├── ✅ StudiesDashboard sort
+├── ✅ StudyDetail filters (3)
+├── ✅ ImportModal column mapper
+└── ✅ StudyDetail.tsx استُعيد كاملاً (لا placeholder)
 
-اليوم (P1)
-├── Design tokens في globals.css (spacing 4/8/12/16/24/32)
-├── Touch targets ≥ 44px
-├── StudyDetail header hierarchy
-└── اختبار HP lab + MacBook + iPad + Phone
+جاري / راقب (P1)
+├── Browser loop على live + أجهزة متعددة
+├── أي touch target < 44px متبقي
+├── كثافة StudyDetail header إن لزم
+└── تأكيد عدم وجود zoom إجباري على desktop
 
 لاحقاً (P2)
 ├── تبسيط النصوص للوالد
-├── Empty states
+├── Empty states أقوى
 └── Performance (lazy modals)
 ```
 
@@ -216,4 +216,5 @@ Domain logic (pure, no UI):
 
 ---
 
-*هذا الملف هو خريطة حية — يُحدَّث مع كل دفعة إصلاحات.*
+*هذا الملف هو خريطة حية — يُحدّث مع كل دفعة إصلاحات.*  
+*IMPLEMENTATION_PLAN.md موجود في الجذر ويوثّق الخطوات قبل أي كود.*
