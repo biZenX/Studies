@@ -3,6 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import {
   Modal,
+  AppSelect,
   Spinner,
   IconUpload,
   IconCheck,
@@ -59,25 +60,20 @@ function ColumnOption({
   required?: boolean;
   ignoreLabel: string;
 }) {
+  const options = [
+    { value: "-1", label: ignoreLabel },
+    ...headers.map((h, i) => ({
+      value: String(i),
+      label: h || `عمود ${i + 1}`,
+    })),
+  ];
   return (
-    <label className="block">
-      <span className="mb-1 block text-[11px] font-bold text-[var(--text-secondary)]">
-        {label}
-        {required && <span className="text-[var(--danger)]"> *</span>}
-      </span>
-      <select
-        className="input !py-2 !text-xs"
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-      >
-        <option value={-1}>{ignoreLabel}</option>
-        {headers.map((h, i) => (
-          <option key={i} value={i}>
-            {h || `عمود ${i + 1}`}
-          </option>
-        ))}
-      </select>
-    </label>
+    <AppSelect
+      label={`${label}${required ? " *" : ""}`}
+      value={String(value)}
+      onChange={(v) => onChange(Number(v))}
+      options={options}
+    />
   );
 }
 
@@ -92,7 +88,6 @@ export function ImportModal({
   open: boolean;
   studyId: number;
   studyTitle: string;
-  /** Names already in the roster — used to offer duplicate skipping. */
   existingNames?: string[];
   onClose: () => void;
   onSuccess: (importedCount: number, skipped?: number) => void;
@@ -142,9 +137,6 @@ export function ImportModal({
     setError("");
 
     try {
-      // xlsx + mammoth are heavy (~1 MB). Loading them on demand keeps them out
-      // of the initial bundle so the app stays usable on phones and slower
-      // laptops — a big bundle was making clicks feel dead.
       const { parseFile } = await import("@/lib/parsers");
       const data = await parseFile(f);
       if (!data.rows || data.rows.length === 0) {
@@ -221,7 +213,6 @@ export function ImportModal({
     }
 
     setImporting(true);
-    // Let the spinner render before the (synchronous) bulk insert.
     requestAnimationFrame(() => {
       try {
         const toImport: Array<{
@@ -348,7 +339,6 @@ export function ImportModal({
           </div>
         ) : (
           <div className="space-y-4">
-            {/* File info */}
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-[var(--bg)] p-3">
               <div className="flex min-w-0 items-center gap-2.5">
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-800">
@@ -372,7 +362,6 @@ export function ImportModal({
               </button>
             </div>
 
-            {/* Warnings */}
             {parsedData.warnings.length > 0 && (
               <div className="space-y-1.5">
                 {parsedData.warnings.map((w, i) => (
@@ -387,7 +376,6 @@ export function ImportModal({
               </div>
             )}
 
-            {/* Smart analysis */}
             <section className="rounded-2xl border border-[var(--border)] p-3.5">
               <div className="mb-2.5 flex items-center gap-2">
                 <IconCheckCircle size={16} className="text-[var(--accent-strong)]" />
@@ -449,7 +437,6 @@ export function ImportModal({
               </div>
             </section>
 
-            {/* Column mapping */}
             <section className="rounded-2xl border border-[var(--border)] p-3.5">
               <h4 className="mb-3 text-xs font-extrabold text-[var(--text)]">
                 تحديد ومطابقة الأعمدة
@@ -516,7 +503,6 @@ export function ImportModal({
               )}
             </section>
 
-            {/* Row preview */}
             <section className="overflow-hidden rounded-xl border border-[var(--border)]">
               <div className="flex items-center justify-between bg-slate-50 px-4 py-2 text-xs font-semibold text-[var(--text-secondary)]">
                 <span>معاينة الصفوف المستخرجة</span>
@@ -604,7 +590,6 @@ export function ImportModal({
               )}
             </section>
 
-            {/* Footer actions */}
             <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
               <span className="text-xs text-[var(--text-secondary)]">
                 سيتم إضافة <b className="num">{selectedRows.size}</b> مشارك إلى{" "}
