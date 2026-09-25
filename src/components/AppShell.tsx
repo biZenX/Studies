@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LangProvider, useLang } from "./lang";
 import { ToastProvider } from "./toast";
+import { CloudSync } from "./CloudSync";
 import { IconLayers } from "./ui";
 
 function AcademicLogo({ size = 22 }: { size?: number }) {
@@ -143,6 +144,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <LangProvider>
       <ToastProvider>
+        <CloudSync />
         <div className="flex min-h-dvh w-full flex-col lg:flex-row">
           <Sidebar />
           <div className="flex min-w-0 flex-1 flex-col">
