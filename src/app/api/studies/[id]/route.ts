@@ -69,11 +69,26 @@ export async function PUT(
     .where(eq(studies.id, studyId))
     .returning();
 
-  if (!updated) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (updated) {
+    return NextResponse.json(updated);
   }
 
-  return NextResponse.json(updated);
+  // Upsert: study was created on another device / local-first with this id
+  const [created] = await db
+    .insert(studies)
+    .values({
+      id: studyId,
+      title: (values.title as string) || "بدون عنوان",
+      year: (values.year as string) || new Date().toISOString().slice(0, 10),
+      endDate: (values.endDate as string | null) ?? null,
+      description: (values.description as string | null) ?? null,
+      status: (values.status as string) || "active",
+      titleEn: (values.titleEn as string | null) ?? null,
+      descriptionEn: (values.descriptionEn as string | null) ?? null,
+    })
+    .returning();
+
+  return NextResponse.json(created, { status: 201 });
 }
 
 export async function DELETE(
