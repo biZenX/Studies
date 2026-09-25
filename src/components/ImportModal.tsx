@@ -1,1 +1,1 @@
-LOAD_FROM:/home/workdir/artifacts/ImportModal_CLEAN.tsx
+use client
