@@ -182,7 +182,7 @@ export function initializeLocalStorage(): {
   const studies = (storedStudies ?? []).map(hydrateStudy).filter((s) => s.id);
   const participants = (storedParticipants ?? [])
     .map(hydrateParticipant)
-    .filter((p) => p.id && p.name);
+    .filter((p: Participant) => p.id && p.name);
 
   memory.studies = studies;
   memory.participants = participants;
@@ -208,6 +208,68 @@ const detailSnapshots = new Map<number, DetailSnapshot>();
 function invalidateSnapshots() {
   dashboardSnapshot = null;
   detailSnapshots.clear();
+}
+
+export function hydrateServerStudies(serverStudies: StudyWithCount[]) {
+  if (typeof window === "undefined" || !serverStudies || serverStudies.length === 0) return;
+  const { studies } = initializeLocalStorage();
+  const localMap = new Map(studies.map((s) => [s.id, s]));
+  let changed = false;
+
+  for (const s of serverStudies) {
+    if (!localMap.has(s.id)) {
+      studies.push(s);
+      changed = true;
+    } else {
+      const existing = localMap.get(s.id)!;
+      if (existing.title !== s.title || existing.year !== s.year || existing.status !== s.status) {
+        Object.assign(existing, s);
+        changed = true;
+      }
+    }
+  }
+
+  if (changed) {
+    memory.studies = studies;
+    invalidateSnapshots();
+    saveToLocal(STUDIES_KEY, studies);
+    notifyListeners();
+  }
+}
+
+export function hydrateServerStudyDetail(
+  studyId: number,
+  serverStudy: StudyWithCount | null,
+  serverParticipants: Participant[],
+) {
+  if (typeof window === "undefined" || !serverStudy) return;
+  const { studies, participants } = initializeLocalStorage();
+  let changed = false;
+
+  const sIdx = studies.findIndex((s) => s.id === studyId);
+  if (sIdx === -1) {
+    studies.push(serverStudy);
+    changed = true;
+  }
+
+  const existingParticipantIds = new Set(
+    participants.filter((p) => p.studyId === studyId).map((p) => p.id),
+  );
+  for (const p of serverParticipants) {
+    if (!existingParticipantIds.has(p.id)) {
+      participants.push(p);
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    memory.studies = studies;
+    memory.participants = participants;
+    invalidateSnapshots();
+    saveToLocal(STUDIES_KEY, studies);
+    saveToLocal(PARTICIPANTS_KEY, participants);
+    notifyListeners();
+  }
 }
 
 export function getDashboardSnapshot(): DashboardSnapshot {
@@ -438,9 +500,15 @@ export function bulkAddLocalParticipants(
   memory.participants = participants;
   persist();
   notifyListeners();
-  for (const p of createdList) {
-    syncParticipantWithServer(studyId, p).catch(() => {});
+
+  if (createdList.length > 0) {
+    fetch(`/api/studies/${studyId}/participants`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(createdList),
+    }).catch(() => {});
   }
+
   return createdList;
 }
 
@@ -466,69 +534,92 @@ export function restoreLocalParticipant(participant: Participant) {
 }
 
 /* Cloud + local sync */
-let serverSyncState: "unknown" | "on" | "off" = "unknown";
 let pullInFlight: Promise<boolean> | null = null;
 let lastPullAt = 0;
 
-async function serverSyncEnabled(): Promise<boolean> {
-  if (serverSyncState !== "unknown") return serverSyncState === "on";
-  try {
-    const res = await fetch("/api/health", { method: "GET", cache: "no-store" });
-    const data = await res.json().catch(() => null);
-    serverSyncState = res.ok && data?.ok ? "on" : "off";
-  } catch {
-    serverSyncState = "off";
-  }
-  return serverSyncState === "on";
-}
-
-/** Pull cloud roster (or push local if cloud empty). Multi-device source of truth. */
+/** Pull cloud roster and sync bi-directionally without losing local or cloud data. */
 export async function pullFromCloud(force = false): Promise<boolean> {
   if (typeof window === "undefined") return false;
-  if (!force && Date.now() - lastPullAt < 15_000) return serverSyncState === "on";
+  if (!force && Date.now() - lastPullAt < 10_000) return true;
   if (pullInFlight) return pullInFlight;
 
   pullInFlight = (async () => {
     try {
-      if (!(await serverSyncEnabled())) return false;
       const res = await fetch("/api/sync", { method: "GET", cache: "no-store" });
       if (!res.ok) {
-        serverSyncState = "off";
         return false;
       }
       const data = await res.json().catch(() => null);
       if (!data?.ok || !Array.isArray(data.studies)) return false;
 
-      const cloudStudies = (data.studies as any[]).map(hydrateStudy).filter((s) => s.id);
-      const cloudParticipants = (Array.isArray(data.participants) ? data.participants : [])
+      const cloudStudies: Study[] = (data.studies as any[])
+        .map(hydrateStudy)
+        .filter((s: Study) => Boolean(s.id));
+      const cloudParticipants: Participant[] = (
+        Array.isArray(data.participants) ? data.participants : []
+      )
         .map(hydrateParticipant)
-        .filter((p) => p.id && p.name);
-
-      if (cloudStudies.length > 0) {
-        memory.studies = cloudStudies;
-        memory.participants = cloudParticipants;
-        invalidateSnapshots();
-        saveToLocal(STUDIES_KEY, cloudStudies);
-        saveToLocal(PARTICIPANTS_KEY, cloudParticipants);
-        try {
-          getSafeStorage()?.setItem(SEEDED_KEY, "1");
-        } catch {
-          /* ignore */
-        }
-        lastPullAt = Date.now();
-        notifyListeners();
-        return true;
-      }
+        .filter((p: Participant) => Boolean(p.id && p.name));
 
       const local = initializeLocalStorage();
-      if (local.studies.length > 0) {
-        for (const s of local.studies) await syncStudyWithServer(s);
-        for (const p of local.participants) await syncParticipantWithServer(p.studyId, p);
-        lastPullAt = Date.now();
-        return true;
+
+      // Find local items created on this browser that aren't yet in the database
+      const cloudStudyIds = new Set(cloudStudies.map((s: Study) => s.id));
+      const localOnlyStudies = local.studies.filter(
+        (s: Study) => !cloudStudyIds.has(s.id),
+      );
+
+      const cloudParticipantIds = new Set(
+        cloudParticipants.map((p: Participant) => p.id),
+      );
+      const localOnlyParticipants = local.participants.filter(
+        (p: Participant) => !cloudParticipantIds.has(p.id),
+      );
+
+      let mergedStudies = cloudStudies;
+      let mergedParticipants = cloudParticipants;
+
+      if (localOnlyStudies.length > 0 || localOnlyParticipants.length > 0) {
+        try {
+          const syncRes = await fetch("/api/sync", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              studies: [...cloudStudies, ...localOnlyStudies],
+              participants: [...cloudParticipants, ...localOnlyParticipants],
+            }),
+          });
+          if (syncRes.ok) {
+            const syncData = await syncRes.json().catch(() => null);
+            if (syncData?.ok && Array.isArray(syncData.studies)) {
+              mergedStudies = (syncData.studies as any[])
+                .map(hydrateStudy)
+                .filter((s: Study) => Boolean(s.id));
+              mergedParticipants = (
+                Array.isArray(syncData.participants) ? syncData.participants : []
+              )
+                .map(hydrateParticipant)
+                .filter((p: Participant) => Boolean(p.id && p.name));
+            }
+          }
+        } catch {
+          mergedStudies = [...cloudStudies, ...localOnlyStudies];
+          mergedParticipants = [...cloudParticipants, ...localOnlyParticipants];
+        }
       }
 
+      memory.studies = mergedStudies;
+      memory.participants = mergedParticipants;
+      invalidateSnapshots();
+      saveToLocal(STUDIES_KEY, mergedStudies);
+      saveToLocal(PARTICIPANTS_KEY, mergedParticipants);
+      try {
+        getSafeStorage()?.setItem(SEEDED_KEY, "1");
+      } catch {
+        /* ignore */
+      }
       lastPullAt = Date.now();
+      notifyListeners();
       return true;
     } catch {
       return false;
@@ -541,7 +632,6 @@ export async function pullFromCloud(force = false): Promise<boolean> {
 }
 
 async function syncDeleteWithServer(url: string) {
-  if (!(await serverSyncEnabled())) return;
   try {
     await fetch(url, { method: "DELETE" });
   } catch {
@@ -550,8 +640,8 @@ async function syncDeleteWithServer(url: string) {
 }
 
 async function syncStudyWithServer(study: Study) {
-  if (!(await serverSyncEnabled())) return;
   const payload = {
+    id: study.id,
     title: study.title,
     year: study.year,
     endDate: study.endDate ?? null,
@@ -578,7 +668,6 @@ async function syncStudyWithServer(study: Study) {
 }
 
 async function syncParticipantWithServer(studyId: number, p: Participant) {
-  if (!(await serverSyncEnabled())) return;
   try {
     await fetch(`/api/studies/${studyId}/participants`, {
       method: "POST",

@@ -40,6 +40,7 @@ import {
   saveLocalStudy,
   deleteLocalStudy,
   subscribeStorage,
+  hydrateServerStudies,
 } from "@/lib/storage";
 
 const EMPTY_STATS: Stats = { studies: 0, participants: 0, countries: 0, withEmail: 0 };
@@ -71,10 +72,13 @@ export function StudiesDashboard({
   );
 
   const getClientSnapshot = useCallback(() => {
+    if (initialStudies && initialStudies.length > 0) {
+      hydrateServerStudies(initialStudies);
+    }
     const local = getDashboardSnapshot();
     if (local.studies.length > 0) return local;
     return serverSnapshot.studies.length > 0 ? serverSnapshot : local;
-  }, [serverSnapshot]);
+  }, [initialStudies, serverSnapshot]);
 
   const snapshot = useSyncExternalStore(
     subscribeStorage,
