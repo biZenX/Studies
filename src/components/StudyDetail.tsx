@@ -57,6 +57,7 @@ import {
   deleteLocalParticipant,
   restoreLocalParticipant,
   subscribeStorage,
+  hydrateServerStudyDetail,
 } from "@/lib/storage";
 
 const NO_PARTICIPANTS: Participant[] = [];
@@ -95,10 +96,17 @@ export function StudyDetail({
   );
 
   const getClientSnapshot = useCallback(() => {
+    if (initialStudy) {
+      hydrateServerStudyDetail(
+        activeId,
+        initialStudy,
+        initialParticipants ?? NO_PARTICIPANTS,
+      );
+    }
     const local = getStudySnapshot(activeId);
     if (local.study) return local;
     return serverSnapshot.study ? serverSnapshot : local;
-  }, [activeId, serverSnapshot]);
+  }, [activeId, initialStudy, initialParticipants, serverSnapshot]);
 
   const snapshot = useSyncExternalStore(
     subscribeStorage,

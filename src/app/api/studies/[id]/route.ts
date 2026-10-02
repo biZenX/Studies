@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { studies, participants } from "@/db/schema";
-import { eq, count } from "drizzle-orm";
+import { eq, count, sql } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
@@ -9,98 +9,116 @@ export async function GET(
   _req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const { id } = await params;
-  const studyId = Number(id);
-  if (!Number.isInteger(studyId)) {
-    return NextResponse.json({ error: "Invalid id" }, { status: 400 });
+  try {
+    const { id } = await params;
+    const studyId = Number(id);
+    if (!Number.isInteger(studyId)) {
+      return NextResponse.json({ error: "Invalid id" }, { status: 400 });
+    }
+
+    const [study] = await db.select().from(studies).where(eq(studies.id, studyId));
+    if (!study) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+
+    const [row] = await db
+      .select({ n: count() })
+      .from(participants)
+      .where(eq(participants.studyId, studyId));
+
+    return NextResponse.json({ ...study, participantCount: row?.n ?? 0 });
+  } catch (err: any) {
+    return NextResponse.json({ error: err?.message || "Failed to fetch study" }, { status: 500 });
   }
-
-  const [study] = await db.select().from(studies).where(eq(studies.id, studyId));
-  if (!study) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
-
-  const [row] = await db
-    .select({ n: count() })
-    .from(participants)
-    .where(eq(participants.studyId, studyId));
-
-  return NextResponse.json({ ...study, participantCount: row?.n ?? 0 });
 }
 
 export async function PUT(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const { id } = await params;
-  const studyId = Number(id);
-  if (!Number.isInteger(studyId)) {
-    return NextResponse.json({ error: "Invalid id" }, { status: 400 });
+  try {
+    const { id } = await params;
+    const studyId = Number(id);
+    if (!Number.isInteger(studyId)) {
+      return NextResponse.json({ error: "Invalid id" }, { status: 400 });
+    }
+
+    const body = await req.json();
+    const values: Record<string, string | null> = {};
+
+    if (body.title !== undefined) values.title = String(body.title).trim();
+    if (body.year !== undefined) values.year = String(body.year).trim();
+    if (body.endDate !== undefined)
+      values.endDate = String(body.endDate ?? "").trim() || null;
+    if (body.description !== undefined)
+      values.description = String(body.description).trim() || null;
+    if (body.status !== undefined) values.status = String(body.status);
+    if (body.titleEn !== undefined)
+      values.titleEn = String(body.titleEn ?? "").trim() || null;
+    if (body.descriptionEn !== undefined)
+      values.descriptionEn = String(body.descriptionEn ?? "").trim() || null;
+
+    if (values.title === "") {
+      return NextResponse.json({ error: "Title is required" }, { status: 400 });
+    }
+    if (values.endDate && values.year && values.endDate < values.year) {
+      return NextResponse.json(
+        { error: "The end date must be on or after the start date" },
+        { status: 400 },
+      );
+    }
+
+    const [updated] = await db
+      .update(studies)
+      .set(values)
+      .where(eq(studies.id, studyId))
+      .returning();
+
+    if (updated) {
+      return NextResponse.json(updated);
+    }
+
+    // Upsert: study was created on another device / local-first with this id
+    const [created] = await db
+      .insert(studies)
+      .values({
+        id: studyId,
+        title: (values.title as string) || "بدون عنوان",
+        year: (values.year as string) || new Date().toISOString().slice(0, 10),
+        endDate: (values.endDate as string | null) ?? null,
+        description: (values.description as string | null) ?? null,
+        status: (values.status as string) || "active",
+        titleEn: (values.titleEn as string | null) ?? null,
+        descriptionEn: (values.descriptionEn as string | null) ?? null,
+      })
+      .returning();
+
+    try {
+      await db.execute(sql`SELECT setval('studies_id_seq', (SELECT GREATEST(MAX(id), 1) FROM studies))`);
+    } catch {
+      /* ignore */
+    }
+
+    return NextResponse.json(created, { status: 201 });
+  } catch (err: any) {
+    return NextResponse.json({ error: err?.message || "Failed to update study" }, { status: 500 });
   }
-
-  const body = await req.json();
-  const values: Record<string, string | null> = {};
-
-  if (body.title !== undefined) values.title = String(body.title).trim();
-  if (body.year !== undefined) values.year = String(body.year).trim();
-  if (body.endDate !== undefined)
-    values.endDate = String(body.endDate ?? "").trim() || null;
-  if (body.description !== undefined)
-    values.description = String(body.description).trim() || null;
-  if (body.status !== undefined) values.status = String(body.status);
-  if (body.titleEn !== undefined)
-    values.titleEn = String(body.titleEn ?? "").trim() || null;
-  if (body.descriptionEn !== undefined)
-    values.descriptionEn = String(body.descriptionEn ?? "").trim() || null;
-
-  if (values.title === "") {
-    return NextResponse.json({ error: "Title is required" }, { status: 400 });
-  }
-  if (values.endDate && values.year && values.endDate < values.year) {
-    return NextResponse.json(
-      { error: "The end date must be on or after the start date" },
-      { status: 400 },
-    );
-  }
-
-  const [updated] = await db
-    .update(studies)
-    .set(values)
-    .where(eq(studies.id, studyId))
-    .returning();
-
-  if (updated) {
-    return NextResponse.json(updated);
-  }
-
-  // Upsert: study was created on another device / local-first with this id
-  const [created] = await db
-    .insert(studies)
-    .values({
-      id: studyId,
-      title: (values.title as string) || "بدون عنوان",
-      year: (values.year as string) || new Date().toISOString().slice(0, 10),
-      endDate: (values.endDate as string | null) ?? null,
-      description: (values.description as string | null) ?? null,
-      status: (values.status as string) || "active",
-      titleEn: (values.titleEn as string | null) ?? null,
-      descriptionEn: (values.descriptionEn as string | null) ?? null,
-    })
-    .returning();
-
-  return NextResponse.json(created, { status: 201 });
 }
 
 export async function DELETE(
   _req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const { id } = await params;
-  const studyId = Number(id);
-  if (!Number.isInteger(studyId)) {
-    return NextResponse.json({ error: "Invalid id" }, { status: 400 });
-  }
+  try {
+    const { id } = await params;
+    const studyId = Number(id);
+    if (!Number.isInteger(studyId)) {
+      return NextResponse.json({ error: "Invalid id" }, { status: 400 });
+    }
 
-  await db.delete(studies).where(eq(studies.id, studyId));
-  return NextResponse.json({ ok: true });
+    await db.delete(studies).where(eq(studies.id, studyId));
+    return NextResponse.json({ ok: true });
+  } catch (err: any) {
+    return NextResponse.json({ error: err?.message || "Failed to delete study" }, { status: 500 });
+  }
 }

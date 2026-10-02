@@ -209,7 +209,9 @@ export function Modal({
   const subtitleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     if (!open) return;
@@ -325,6 +327,7 @@ export function DiscardPrompt({
   onDiscard,
   title,
   body,
+  description,
   keepLabel,
   discardLabel,
 }: {
@@ -332,11 +335,13 @@ export function DiscardPrompt({
   onKeep: () => void;
   onDiscard: () => void;
   title: string;
-  body: string;
+  body?: string;
+  description?: string;
   keepLabel: string;
   discardLabel: string;
 }) {
   if (!open) return null;
+  const message = body || description || "";
   return (
     <div
       className="absolute inset-0 z-10 flex items-center justify-center bg-white/80 p-4"
@@ -350,7 +355,7 @@ export function DiscardPrompt({
           </div>
           <div className="min-w-0">
             <p className="text-sm font-extrabold text-[var(--text)]">{title}</p>
-            <p className="mt-1 text-xs leading-relaxed text-[var(--text-secondary)]">{body}</p>
+            {message && <p className="mt-1 text-xs leading-relaxed text-[var(--text-secondary)]">{message}</p>}
           </div>
         </div>
         <div className="mt-4 flex gap-2">
@@ -368,16 +373,31 @@ export function DiscardPrompt({
 
 export function FormSection({
   title,
+  icon,
+  hint,
+  action,
   children,
   className,
 }: {
   title: string;
+  icon?: ReactNode;
+  hint?: ReactNode;
+  action?: ReactNode;
   children: ReactNode;
   className?: string;
 }) {
   return (
     <section className={`rounded-2xl border border-[var(--border)] p-3 sm:p-4 ${className ?? ""}`}>
-      <h4 className="mb-3 text-xs font-extrabold text-[var(--text)]">{title}</h4>
+      <div className="mb-3 flex items-start justify-between gap-2">
+        <div className="flex items-center gap-2">
+          {icon && <span className="text-[var(--text-secondary)]">{icon}</span>}
+          <div>
+            <h4 className="text-xs font-extrabold text-[var(--text)]">{title}</h4>
+            {hint && <p className="mt-0.5 text-[11px] text-[var(--text-tertiary)]">{hint}</p>}
+          </div>
+        </div>
+        {action && <div>{action}</div>}
+      </div>
       {children}
     </section>
   );
